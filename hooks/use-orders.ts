@@ -11,12 +11,14 @@ export function useOrders() {
   const fetchOrders = useCallback(async () => {
     try {
       const res = await fetch("/api/orders");
-      if (!res.ok) throw new Error("Failed to fetch");
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to fetch");
+      }
       setOrders(data);
       setError(null);
     } catch (err) {
-      setError("Failed to load orders");
+      setError(err instanceof Error ? err.message : "Failed to load orders");
     } finally {
       setLoading(false);
     }
