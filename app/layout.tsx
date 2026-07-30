@@ -1,12 +1,14 @@
+import "./globals.css";
+
 export const metadata = {
-  title: "Diecast Sales Tracker",
-  description: "Model car sales tracking system",
+  title: "模型车销售记账",
+  description: "模型车销售订单管理与利润统计",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
-      <body className="bg-slate-50 text-slate-900">{children}</body>
+    <html lang="zh-CN">
+      <body className="bg-slate-50 text-slate-900 antialiased">{children}</body>
     </html>
   );
 }

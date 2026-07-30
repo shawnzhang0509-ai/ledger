@@ -1,6 +1,7 @@
 "use client";
 
 import { Order } from "@/lib/data";
+import { FIELD_LABELS } from "@/lib/labels";
 import { Download, Upload, FileSpreadsheet } from "lucide-react";
 
 export function ImportExport({ orders, onImport }: { orders: Order[]; onImport: () => void }) {
@@ -9,23 +10,40 @@ export function ImportExport({ orders, onImport }: { orders: Order[]; onImport: 
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `diecast-sales-${new Date().toISOString().split("T")[0]}.json`;
+    a.download = `模型车销售-${new Date().toISOString().split("T")[0]}.json`;
     a.click();
   };
 
   const exportCSV = () => {
-    const headers = ["Order ID", "Date Sold", "Customer", "Model", "Brand", "Scale", "Status", "Purchase Cost", "Air Freight", "Trade Me Fee", "Shipping Charge", "Courier Cost", "Selling Price", "Gross Profit", "Tracking", "Notes"];
+    const headers = [
+      FIELD_LABELS.orderId,
+      FIELD_LABELS.dateSold,
+      FIELD_LABELS.customer,
+      FIELD_LABELS.model,
+      FIELD_LABELS.brand,
+      FIELD_LABELS.scale,
+      FIELD_LABELS.status,
+      FIELD_LABELS.purchaseCost,
+      FIELD_LABELS.airFreight,
+      FIELD_LABELS.tradeMeFee,
+      FIELD_LABELS.shippingCharge,
+      FIELD_LABELS.courierCost,
+      FIELD_LABELS.sellingPrice,
+      FIELD_LABELS.grossProfit,
+      FIELD_LABELS.tracking,
+      FIELD_LABELS.notes,
+    ];
     const rows = orders.map((o) => [
       o.orderId, o.dateSold, o.customer, o.model, o.brand, o.scale, o.status,
       o.purchaseCost, o.airFreight, o.tradeMeFee, o.shippingCharge, o.courierCost,
       o.sellingPrice, o.grossProfit, o.tracking, o.notes,
     ]);
     const csv = [headers.join(","), ...rows.map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(","))].join("\n");
-    const blob = new Blob([csv], { type: "text/csv" });
+    const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `diecast-sales-${new Date().toISOString().split("T")[0]}.csv`;
+    a.download = `模型车销售-${new Date().toISOString().split("T")[0]}.csv`;
     a.click();
   };
 
@@ -47,7 +65,7 @@ export function ImportExport({ orders, onImport }: { orders: Order[]; onImport: 
           onImport();
         }
       } catch {
-        alert("Invalid JSON file");
+        alert("JSON 文件格式无效");
       }
     };
     reader.readAsText(file);
@@ -55,15 +73,15 @@ export function ImportExport({ orders, onImport }: { orders: Order[]; onImport: 
   };
 
   return (
-    <div className="flex gap-2">
-      <button onClick={exportJSON} className="flex items-center gap-1 px-3 py-2 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition text-sm">
-        <Download className="w-4 h-4" /> JSON
+    <div className="flex flex-wrap gap-2">
+      <button onClick={exportJSON} className="flex items-center gap-1.5 px-3 py-2 bg-white border border-slate-200 text-slate-700 rounded-lg hover:bg-slate-50 transition text-sm">
+        <Download className="w-4 h-4" /> 导出 JSON
       </button>
-      <button onClick={exportCSV} className="flex items-center gap-1 px-3 py-2 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition text-sm">
-        <FileSpreadsheet className="w-4 h-4" /> CSV
+      <button onClick={exportCSV} className="flex items-center gap-1.5 px-3 py-2 bg-white border border-slate-200 text-slate-700 rounded-lg hover:bg-slate-50 transition text-sm">
+        <FileSpreadsheet className="w-4 h-4" /> 导出 CSV
       </button>
-      <label className="flex items-center gap-1 px-3 py-2 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition text-sm cursor-pointer">
-        <Upload className="w-4 h-4" /> 导入
+      <label className="flex items-center gap-1.5 px-3 py-2 bg-white border border-slate-200 text-slate-700 rounded-lg hover:bg-slate-50 transition text-sm cursor-pointer">
+        <Upload className="w-4 h-4" /> 导入 JSON
         <input type="file" accept=".json" onChange={importJSON} className="hidden" />
       </label>
     </div>
