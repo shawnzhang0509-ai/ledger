@@ -2,7 +2,12 @@
 
 import { useState, useEffect } from "react";
 import { X } from "lucide-react";
-import { Order, STATUS_OPTIONS, calculateGrossProfit } from "@/lib/data";
+import {
+  Order,
+  STATUS_OPTIONS,
+  calculateGrossProfit,
+  calculatePurchaseCostNzd,
+} from "@/lib/data";
 import { FIELD_LABELS, getStatusLabel } from "@/lib/labels";
 
 type OrderFormData = Omit<Order, "id" | "grossProfit" | "createdAt" | "updatedAt">;
@@ -21,6 +26,8 @@ const emptyOrder: OrderFormData = {
   brand: "",
   scale: "",
   status: "Pending",
+  purchaseCostCny: 0,
+  exchangeRate: 4.5,
   purchaseCost: 0,
   airFreight: 0,
   tradeMeFee: 0,
@@ -31,8 +38,7 @@ const emptyOrder: OrderFormData = {
   notes: "",
 };
 
-const costFields = [
-  "purchaseCost",
+const nzdCostFields = [
   "airFreight",
   "tradeMeFee",
   "shippingCharge",
@@ -54,6 +60,8 @@ export function OrderForm({ order, onSubmit, onClose }: OrderFormProps) {
         brand: order.brand,
         scale: order.scale,
         status: order.status,
+        purchaseCostCny: order.purchaseCostCny ?? 0,
+        exchangeRate: order.exchangeRate ?? 4.5,
         purchaseCost: order.purchaseCost,
         airFreight: order.airFreight,
         tradeMeFee: order.tradeMeFee,
@@ -68,9 +76,15 @@ export function OrderForm({ order, onSubmit, onClose }: OrderFormProps) {
     }
   }, [order]);
 
+  const purchaseCostNzd = calculatePurchaseCostNzd(form.purchaseCostCny, form.exchangeRate);
+
   useEffect(() => {
-    setPreviewProfit(calculateGrossProfit(form));
-  }, [form]);
+    const orderForProfit = {
+      ...form,
+      purchaseCost: purchaseCostNzd > 0 ? purchaseCostNzd : form.purchaseCost,
+    };
+    setPreviewProfit(calculateGrossProfit(orderForProfit));
+  }, [form, purchaseCostNzd]);
 
   const handleChange = (field: string, value: string | number) => {
     setForm((prev) => ({ ...prev, [field]: value }));
@@ -78,7 +92,11 @@ export function OrderForm({ order, onSubmit, onClose }: OrderFormProps) {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSubmit(order ? { ...form, id: order.id, createdAt: order.createdAt, updatedAt: order.updatedAt } : form);
+    const payload = {
+      ...form,
+      purchaseCost: purchaseCostNzd > 0 ? purchaseCostNzd : form.purchaseCost,
+    };
+    onSubmit(order ? { ...payload, id: order.id, createdAt: order.createdAt, updatedAt: order.updatedAt } : payload);
   };
 
   const inputClass =
@@ -136,8 +154,51 @@ export function OrderForm({ order, onSubmit, onClose }: OrderFormProps) {
             </div>
           </div>
 
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-4">
+            <h3 className="text-sm font-semibold text-slate-800">采购成本</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">
+                  {FIELD_LABELS.purchaseCostCny} *
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  required
+                  value={form.purchaseCostCny || ""}
+                  onChange={(e) => handleChange("purchaseCostCny", parseFloat(e.target.value) || 0)}
+                  className={inputClass}
+                  placeholder="如 200"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">
+                  {FIELD_LABELS.exchangeRate} *
+                </label>
+                <input
+                  type="number"
+                  step="0.0001"
+                  min="0.0001"
+                  required
+                  value={form.exchangeRate || ""}
+                  onChange={(e) => handleChange("exchangeRate", parseFloat(e.target.value) || 0)}
+                  className={inputClass}
+                  placeholder="如 4.5"
+                />
+                <p className="text-xs text-slate-500 mt-1">1 纽币 = ? 人民币</p>
+              </div>
+            </div>
+            <div className="flex items-center justify-between text-sm bg-white rounded-lg border border-slate-200 px-4 py-3">
+              <span className="text-slate-600">{FIELD_LABELS.purchaseCost}</span>
+              <span className="font-semibold text-slate-900">
+                {purchaseCostNzd > 0 ? `$${purchaseCostNzd.toFixed(2)}` : "—"}
+              </span>
+            </div>
+          </div>
+
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {costFields.map((key) => (
+            {nzdCostFields.map((key) => (
               <div key={key}>
                 <label className="block text-sm font-medium text-slate-700 mb-1">
                   {FIELD_LABELS[key]} (NZD)
