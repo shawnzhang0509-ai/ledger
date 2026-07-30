@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getKvClient } from "@/lib/kv";
-import { Order, calculateGrossProfit } from "@/lib/data";
+import { Order, calculateGrossProfit, normalizeOrderInput } from "@/lib/data";
 
 const ORDERS_KEY = "diecast:orders";
 
@@ -31,7 +31,7 @@ export async function GET(request: NextRequest) {
 
   try {
     const kv = getKvClient();
-    const orders = (await kv.get<Order[]>(ORDERS_KEY)) || [];
+    const orders = ((await kv.get<Order[]>(ORDERS_KEY)) || []).map((order) => normalizeOrderInput(order));
     return NextResponse.json(orders);
   } catch (error) {
     return kvErrorResponse(error);
@@ -47,10 +47,11 @@ export async function POST(request: NextRequest) {
     const kv = getKvClient();
     const body = await request.json();
     const now = new Date().toISOString();
+    const normalized = normalizeOrderInput(body);
     const newOrder: Order = {
-      ...body,
+      ...normalized,
       id: crypto.randomUUID(),
-      grossProfit: calculateGrossProfit(body),
+      grossProfit: calculateGrossProfit(normalized as Order),
       createdAt: now,
       updatedAt: now,
     };
@@ -76,9 +77,10 @@ export async function PUT(request: NextRequest) {
     if (index === -1) {
       return NextResponse.json({ error: "Order not found" }, { status: 404 });
     }
+    const normalized = normalizeOrderInput(body);
     const updatedOrder: Order = {
-      ...body,
-      grossProfit: calculateGrossProfit(body),
+      ...normalized,
+      grossProfit: calculateGrossProfit(normalized as Order),
       updatedAt: new Date().toISOString(),
       createdAt: orders[index].createdAt,
     };

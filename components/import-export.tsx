@@ -23,6 +23,8 @@ export function ImportExport({ orders, onImport }: { orders: Order[]; onImport: 
       FIELD_LABELS.brand,
       FIELD_LABELS.scale,
       FIELD_LABELS.status,
+      FIELD_LABELS.purchaseCostCny,
+      FIELD_LABELS.exchangeRate,
       FIELD_LABELS.purchaseCost,
       FIELD_LABELS.airFreight,
       FIELD_LABELS.tradeMeFee,
@@ -35,7 +37,7 @@ export function ImportExport({ orders, onImport }: { orders: Order[]; onImport: 
     ];
     const rows = orders.map((o) => [
       o.orderId, o.dateSold, o.customer, o.model, o.brand, o.scale, o.status,
-      o.purchaseCost, o.airFreight, o.tradeMeFee, o.shippingCharge, o.courierCost,
+      o.purchaseCostCny, o.exchangeRate, o.purchaseCost, o.airFreight, o.tradeMeFee, o.shippingCharge, o.courierCost,
       o.sellingPrice, o.grossProfit, o.tracking, o.notes,
     ]);
     const csv = [headers.join(","), ...rows.map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(","))].join("\n");
