@@ -49,7 +49,7 @@ export const SAMPLE_ORDERS: Omit<Order, "id" | "createdAt" | "updatedAt" | "gros
     courierCost: 9,
     sellingPrice: 120,
     tracking: "NZ123456",
-    notes: "First sale",
+    notes: "首笔销售",
   },
   {
     orderId: "KP-17637",
