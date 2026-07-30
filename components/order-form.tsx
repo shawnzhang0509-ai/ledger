@@ -2,6 +2,8 @@
 
 import { useState, useEffect } from "react";
 import { Order, STATUS_OPTIONS, calculateGrossProfit } from "@/lib/data";
+
+type OrderFormData = Omit<Order, "id" | "grossProfit" | "createdAt" | "updatedAt">;
 import { X } from "lucide-react";
 
 interface OrderFormProps {
@@ -10,14 +12,14 @@ interface OrderFormProps {
   onClose: () => void;
 }
 
-const emptyOrder = {
+const emptyOrder: OrderFormData = {
   orderId: "",
   dateSold: new Date().toISOString().split("T")[0],
   customer: "",
   model: "",
   brand: "",
   scale: "",
-  status: "Pending" as const,
+  status: "Pending",
   purchaseCost: 0,
   airFreight: 0,
   tradeMeFee: 0,
@@ -29,7 +31,7 @@ const emptyOrder = {
 };
 
 export function OrderForm({ order, onSubmit, onClose }: OrderFormProps) {
-  const [form, setForm] = useState(emptyOrder);
+  const [form, setForm] = useState<OrderFormData>(emptyOrder);
   const [previewProfit, setPreviewProfit] = useState(0);
 
   useEffect(() => {
