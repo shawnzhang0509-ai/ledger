@@ -57,11 +57,11 @@ export function calculateGrossProfit(
 ): number {
   const purchaseCostNzd = getPurchaseCostNzd(order);
   return (
-    order.sellingPrice -
+    order.sellingPrice +
+    order.shippingCharge -
     purchaseCostNzd -
     order.airFreight -
     order.tradeMeFee -
-    order.shippingCharge -
     order.courierCost
   );
 }
