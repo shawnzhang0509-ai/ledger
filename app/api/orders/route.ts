@@ -1,13 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getKvClient } from "@/lib/kv";
 import { Order, calculateGrossProfit, normalizeOrderInput } from "@/lib/data";
+import { isAuthenticated as checkAuth } from "@/lib/session";
 
 const ORDERS_KEY = "diecast:orders";
-
-function checkAuth(request: NextRequest): boolean {
-  const token = request.cookies.get("auth_token")?.value;
-  return token === process.env.APP_PASSWORD;
-}
 
 function kvErrorResponse(error: unknown) {
   if (error instanceof Error && error.message === "KV_NOT_CONFIGURED") {
