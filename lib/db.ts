@@ -90,6 +90,7 @@ async function ensurePhotos(sql: NonNullable<ReturnType<typeof client>>) {
     uploaded_by text NOT NULL,
     created_at timestamptz NOT NULL DEFAULT now()
   )`;
+  await sql`ALTER TABLE photos ADD COLUMN IF NOT EXISTS deleted_at timestamptz`;
   photosReady = true;
 }
 
@@ -109,5 +110,22 @@ export async function listPhotos(afterId = 0, limit = 100): Promise<Photo[]> {
   await ensurePhotos(sql);
   return (await sql`SELECT id, key, url, product_id, product_name, note, width, height, uploaded_by,
                            to_char(created_at AT TIME ZONE 'Pacific/Auckland', 'YYYY-MM-DD"T"HH24:MI') AS created_at
-                    FROM photos WHERE id > ${afterId} ORDER BY id DESC LIMIT ${limit}`) as Photo[];
+                    FROM photos WHERE id > ${afterId} AND deleted_at IS NULL ORDER BY id DESC LIMIT ${limit}`) as Photo[];
+}
+
+/** Marks a photo deleted and returns its R2 key (the row stays so the agent learns it's gone). */
+export async function markPhotoDeleted(id: number): Promise<string | null> {
+  const sql = client();
+  if (!sql) return null;
+  await ensurePhotos(sql);
+  const rows = await sql`UPDATE photos SET deleted_at = now() WHERE id = ${id} AND deleted_at IS NULL RETURNING key`;
+  return (rows[0]?.key as string) ?? null;
+}
+
+export async function listDeletedPhotos(since: string): Promise<{ id: number; url: string; deleted_at: string }[]> {
+  const sql = client();
+  if (!sql) return [];
+  await ensurePhotos(sql);
+  return (await sql`SELECT id, url, to_char(deleted_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS deleted_at FROM photos
+                    WHERE deleted_at > ${since}::timestamptz ORDER BY deleted_at`) as { id: number; url: string; deleted_at: string }[];
 }

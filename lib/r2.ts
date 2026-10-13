@@ -49,6 +49,18 @@ export function presignedPut(key: string) {
   });
 }
 
+/** Delete one object (server side). R2 answers 204 even if it was already gone. */
+export async function deleteObject(key: string): Promise<boolean> {
+  const c = r2Config();
+  if (!c) return false;
+  const url = presign({
+    method: "DELETE", host: `${c.account}.r2.cloudflarestorage.com`, path: `/${c.bucket}/${key}`, region: "auto",
+    accessKeyId: c.accessKeyId, secretAccessKey: c.secret, expires: 60,
+  });
+  const res = await fetch(url, { method: "DELETE" });
+  return res.ok;
+}
+
 export function publicUrl(key: string) {
   const c = r2Config();
   return c ? `${c.publicBase}/${key.split("/").map(enc).join("/")}` : null;
