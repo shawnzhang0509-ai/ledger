@@ -13,7 +13,8 @@
     "react-dom": "^18.3.0",
     "@vercel/kv": "^1.0.1",
     "lucide-react": "^0.400.0",
-    "date-fns": "^3.6.0"
+    "date-fns": "^3.6.0",
+    "@neondatabase/serverless": "^1.2.0"
   },
   "devDependencies": {
     "typescript": "^5.4.0",
