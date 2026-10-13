@@ -129,3 +129,55 @@ export async function listDeletedPhotos(since: string): Promise<{ id: number; ur
   return (await sql`SELECT id, url, to_char(deleted_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS deleted_at FROM photos
                     WHERE deleted_at > ${since}::timestamptz ORDER BY deleted_at`) as { id: number; url: string; deleted_at: string }[];
 }
+
+// ---------- catalogue prices: the owner's price is the approval to list / reprice on Trade Me ----------
+
+export type CatalogPrice = { product_id: string; price: number | null; list_on_trademe: boolean; title: string | null;
+  updated_at: string; updated_by: string };
+export type CatalogStatus = { product_id: string; state: string; listing_id: number | null; tm_price: number | null;
+  message: string | null; title: string | null; at: string };
+
+let catalogReady = false;
+
+async function ensureCatalog(sql: NonNullable<ReturnType<typeof client>>) {
+  if (catalogReady) return;
+  await sql`CREATE TABLE IF NOT EXISTS catalog_prices (
+    product_id text PRIMARY KEY, price numeric(10,2), list_on_trademe boolean NOT NULL DEFAULT false,
+    title text, updated_at timestamptz NOT NULL DEFAULT now(), updated_by text NOT NULL)`;
+  await sql`CREATE TABLE IF NOT EXISTS catalog_status (
+    product_id text PRIMARY KEY, state text NOT NULL, listing_id bigint, tm_price numeric(10,2),
+    message text, title text, at text NOT NULL)`;
+  catalogReady = true;
+}
+
+export async function catalogData(): Promise<{ prices: CatalogPrice[]; status: CatalogStatus[] }> {
+  const sql = client();
+  if (!sql) throw new Error("DATABASE_NOT_CONFIGURED");
+  await ensureCatalog(sql);
+  const prices = await sql`SELECT product_id, price::float AS price, list_on_trademe, title,
+      to_char(updated_at AT TIME ZONE 'Pacific/Auckland', 'YYYY-MM-DD"T"HH24:MI') AS updated_at, updated_by
+    FROM catalog_prices`;
+  const status = await sql`SELECT product_id, state, listing_id::text AS listing_id, tm_price::float AS tm_price, message, title, at
+    FROM catalog_status`;
+  return { prices: prices as CatalogPrice[], status: status as CatalogStatus[] };
+}
+
+export async function setCatalogPrice(p: Omit<CatalogPrice, "updated_at">) {
+  const sql = client();
+  if (!sql) throw new Error("DATABASE_NOT_CONFIGURED");
+  await ensureCatalog(sql);
+  await sql`INSERT INTO catalog_prices (product_id, price, list_on_trademe, title, updated_by, updated_at)
+            VALUES (${p.product_id}, ${p.price}, ${p.list_on_trademe}, ${p.title}, ${p.updated_by}, now())
+            ON CONFLICT (product_id) DO UPDATE SET price = EXCLUDED.price, list_on_trademe = EXCLUDED.list_on_trademe,
+              title = EXCLUDED.title, updated_by = EXCLUDED.updated_by, updated_at = now()`;
+}
+
+export async function saveCatalogStatus(rows: CatalogStatus[]) {
+  const sql = client();
+  if (!sql) throw new Error("DATABASE_NOT_CONFIGURED");
+  await ensureCatalog(sql);
+  await sql.transaction(rows.map((r) => sql`INSERT INTO catalog_status (product_id, state, listing_id, tm_price, message, title, at)
+      VALUES (${r.product_id}, ${r.state}, ${r.listing_id}, ${r.tm_price}, ${r.message}, ${r.title}, ${r.at})
+      ON CONFLICT (product_id) DO UPDATE SET state = EXCLUDED.state, listing_id = EXCLUDED.listing_id,
+        tm_price = EXCLUDED.tm_price, message = EXCLUDED.message, title = EXCLUDED.title, at = EXCLUDED.at`));
+}
