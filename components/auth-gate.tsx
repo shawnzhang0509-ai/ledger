@@ -49,6 +49,11 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
       return;
     }
 
+    if (res.status === 429) {
+      setError("密码错误次数太多，请 15 分钟后再试");
+      return;
+    }
+
     setError("密码错误");
   };
 
