@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { AuthGate } from "@/components/auth-gate";
-import { Camera, Check, Loader2, X } from "lucide-react";
+import { Camera, Check, Loader2, Trash2, X } from "lucide-react";
 
 type Product = { id: string; name: string; brand: string; image: string };
 type Photo = { id: number; url: string; product_id: string | null; product_name: string | null; note: string | null; created_at: string };
@@ -61,6 +61,13 @@ function Uploader() {
   }, [products, query]);
 
   const ready = (product || (unsure && note.trim())) && !busy;
+
+  async function remove(p: Photo) {
+    if (!confirm(`删除这张照片？\n${p.product_name ?? p.note ?? ""}\n删除后网上的链接也会失效。`)) return;
+    const res = await fetch(`/api/uploads?id=${p.id}`, { method: "DELETE" });
+    if (!res.ok) alert("删除失败：" + ((await res.json().catch(() => ({}))).error ?? res.status));
+    loadRecent();
+  }
 
   async function upload(files: FileList | null) {
     if (!files?.length || !ready) return;
@@ -176,13 +183,20 @@ function Uploader() {
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
               {recent.map((p) => (
-                <a key={p.id} href={p.url} target="_blank" rel="noopener noreferrer" className="bg-white rounded-lg border border-slate-200 overflow-hidden">
-                  <img src={p.url} alt="" className="w-full aspect-[4/3] object-cover" loading="lazy" />
-                  <div className="p-2 text-xs">
-                    <div className="truncate text-slate-700">{p.product_name ?? p.note ?? "未指定车型"}</div>
-                    <div className="text-slate-400">{p.created_at.replace("T", " ")}</div>
+                <div key={p.id} className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+                  <a href={p.url} target="_blank" rel="noopener noreferrer">
+                    <img src={p.url} alt="" className="w-full aspect-[4/3] object-cover" loading="lazy" />
+                  </a>
+                  <div className="p-2 text-xs flex items-start gap-1">
+                    <div className="flex-1 min-w-0">
+                      <div className="truncate text-slate-700">{p.product_name ?? p.note ?? "未指定车型"}</div>
+                      <div className="text-slate-400">{p.created_at.replace("T", " ")}</div>
+                    </div>
+                    <button onClick={() => remove(p)} className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded" aria-label="删除">
+                      <Trash2 className="w-4 h-4" />
+                    </button>
                   </div>
-                </a>
+                </div>
               ))}
             </div>
           )}

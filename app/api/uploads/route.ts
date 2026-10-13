@@ -1,7 +1,7 @@
 import { randomUUID } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
-import { addPhoto, listPhotos } from "@/lib/db";
-import { presignedPut, publicUrl, r2Config } from "@/lib/r2";
+import { addPhoto, listDeletedPhotos, listPhotos, markPhotoDeleted } from "@/lib/db";
+import { deleteObject, presignedPut, publicUrl, r2Config } from "@/lib/r2";
 import { pushTokenMatches, sessionRole } from "@/lib/session";
 
 const MAX_SIDE = 4096;
@@ -12,8 +12,24 @@ export async function GET(request: NextRequest) {
   if (!server && !sessionRole(request)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  const after = Number(new URL(request.url).searchParams.get("after") ?? 0) || 0;
+  const params = new URL(request.url).searchParams;
+  const deletedSince = params.get("deleted_since");
+  if (server && deletedSince) {
+    return NextResponse.json(await listDeletedPhotos(deletedSince));
+  }
+  const after = Number(params.get("after") ?? 0) || 0;
   return NextResponse.json(await listPhotos(after, server ? 500 : 60));
+}
+
+// DELETE ?id=…: anyone logged in may remove a photo — the file leaves R2, the row is marked deleted.
+export async function DELETE(request: NextRequest) {
+  if (!sessionRole(request)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const id = Number(new URL(request.url).searchParams.get("id"));
+  if (!Number.isInteger(id) || id <= 0) return NextResponse.json({ error: "Bad id" }, { status: 400 });
+  const key = await markPhotoDeleted(id);
+  if (!key) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  const removed = await deleteObject(key);
+  return NextResponse.json({ success: true, removedFromStorage: removed });
 }
 
 // POST {action: "presign"} → a 10-minute URL to PUT one JPEG into R2 under uploads/.
