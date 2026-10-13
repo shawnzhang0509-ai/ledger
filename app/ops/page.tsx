@@ -20,7 +20,7 @@ type Snapshot = {
   metrics?: Metric[];
   team: { role: string; status: string; actions: number; checks: number; last_action: string | null }[];
   approvals: { kind: string; requested: string; approved: string | null; minutes: number | null }[];
-  inbox: { conversation: string; asked: string; replied: string | null; status: "replied" | "waiting"; minutes: number }[];
+  inbox: { conversation: string; asked: string; replied: string | null; status: "replied" | "waiting" | "dismissed"; minutes: number }[];
   ads_daily: { day: string; spend: number; impressions: number; link_clicks: number; conversations: number }[];
   ads: {
     ad: string; window: string; status: string; daily_budget: number; tag_theme?: string; tag_creative?: string;
@@ -173,16 +173,20 @@ function OpsContent() {
           </div>
         </Section>
 
-        <Section title="私信（Messenger）" note="从客户第一条未回复的消息算到主页回复；自动回复不算。红色 = 超过 1 小时。">
+        <Section title="私信（Messenger）" note="从客户第一条未回复的消息算到主页回复；自动回复不算。红色 = 超过 1 小时。已放弃 = 你在微信回了“放弃 码”，客人再发消息会重新提醒。">
           <Table head={["对话", "客户提问", "回复", "状态", "分钟", ""]}>
             {[...snap.inbox]
-              .sort((a, b) => (a.status === b.status ? b.asked.localeCompare(a.asked) : a.status === "waiting" ? -1 : 1))
+              .sort((a, b) => (a.status === b.status ? b.asked.localeCompare(a.asked) : a.status === "waiting" ? -1 : b.status === "waiting" ? 1 : 0))
               .map((r) => (
                 <tr key={r.conversation + r.asked}>
                   <Td>{r.conversation}</Td>
                   <Td>{when(r.asked)}</Td>
                   <Td>{when(r.replied)}</Td>
-                  <Td><Pill tone={r.status === "waiting" ? "bad" : r.minutes > 60 ? "warn" : "ok"}>{r.status === "waiting" ? "在等" : "已回复"}</Pill></Td>
+                  <Td>
+                    {r.status === "dismissed" ? <Pill>已放弃</Pill> : (
+                      <Pill tone={r.status === "waiting" ? "bad" : r.minutes > 60 ? "warn" : "ok"}>{r.status === "waiting" ? "在等" : "已回复"}</Pill>
+                    )}
+                  </Td>
                   <Td num>{Math.round(r.minutes)}</Td>
                   <Td><Bar value={r.minutes} max={Math.max(...snap.inbox.map((x) => x.minutes), 1)} bad={r.minutes > 60} /></Td>
                 </tr>
