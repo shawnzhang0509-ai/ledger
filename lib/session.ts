@@ -15,7 +15,7 @@ function sha256(text: string): Buffer {
   return createHash("sha256").update(text).digest();
 }
 
-// The signing key is derived from APP_PASSWORD, so changing the password logs every device out.
+// The signing key is derived from APP_PASSWORD, so changing it logs every device (admin and viewer) out.
 function signingKey(): Buffer | null {
   const password = process.env.APP_PASSWORD;
   return password ? sha256(`ledger-session:${password}`) : null;
@@ -25,30 +25,53 @@ function sign(payload: string, key: Buffer): string {
   return createHmac("sha256", key).update(payload).digest("base64url");
 }
 
-export function passwordMatches(input: unknown): boolean {
-  const password = process.env.APP_PASSWORD;
-  if (!password || typeof input !== "string") return false;
-  return timingSafeEqual(sha256(input), sha256(password));
+export type Role = "admin" | "viewer";
+
+function same(a: string, b: string): boolean {
+  return timingSafeEqual(sha256(a), sha256(b));
 }
 
-/** A signed, expiring token. The cookie never holds the password itself. */
-export function createSessionToken(): string | null {
+/** APP_PASSWORD = admin (orders + ops). VIEWER_PASSWORD = colleagues (ops dashboard only). */
+export function passwordRole(input: unknown): Role | null {
+  const admin = process.env.APP_PASSWORD;
+  const viewer = process.env.VIEWER_PASSWORD;
+  if (typeof input !== "string" || !admin) return null;
+  if (same(input, admin)) return "admin";
+  if (viewer && viewer !== admin && same(input, viewer)) return "viewer";
+  return null;
+}
+
+/** A signed, expiring token naming the role. The cookie never holds a password. */
+export function createSessionToken(role: Role): string | null {
   const key = signingKey();
   if (!key) return null;
-  const payload = String(Math.floor(Date.now() / 1000) + SESSION_MAX_AGE);
+  const payload = `${Math.floor(Date.now() / 1000) + SESSION_MAX_AGE}:${role}`;
   return `${payload}.${sign(payload, key)}`;
 }
 
-export function isAuthenticated(request: NextRequest): boolean {
+export function sessionRole(request: NextRequest): Role | null {
   const key = signingKey();
   const token = request.cookies.get(SESSION_COOKIE)?.value;
-  if (!key || !token) return false;
+  if (!key || !token) return null;
   const [payload, mac] = token.split(".");
-  if (!payload || !mac) return false;
+  if (!payload || !mac) return null;
   const expected = Buffer.from(sign(payload, key));
   const given = Buffer.from(mac);
-  if (expected.length !== given.length || !timingSafeEqual(expected, given)) return false;
-  return Number(payload) > Date.now() / 1000;
+  if (expected.length !== given.length || !timingSafeEqual(expected, given)) return null;
+  const [exp, role] = payload.split(":");
+  if (!(Number(exp) > Date.now() / 1000)) return null;
+  return role === "admin" || role === "viewer" ? role : null;
+}
+
+/** Orders (customer names, costs) are admin-only. */
+export function isAuthenticated(request: NextRequest): boolean {
+  return sessionRole(request) === "admin";
+}
+
+export function pushTokenMatches(header: string | null): boolean {
+  const token = process.env.METRICS_PUSH_TOKEN;
+  if (!token || !header?.startsWith("Bearer ")) return false;
+  return same(header.slice(7), token);
 }
 
 function clientIp(request: NextRequest): string {

@@ -3,10 +3,10 @@ import {
   SESSION_COOKIE,
   SESSION_MAX_AGE,
   createSessionToken,
-  isAuthenticated,
   loginBlocked,
-  passwordMatches,
+  passwordRole,
   recordFailedLogin,
+  sessionRole,
 } from "@/lib/session";
 
 export async function GET(request: NextRequest) {
@@ -17,7 +17,8 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  return NextResponse.json({ authenticated: isAuthenticated(request) });
+  const role = sessionRole(request);
+  return NextResponse.json({ authenticated: role !== null, role });
 }
 
 export async function POST(request: NextRequest) {
@@ -31,9 +32,10 @@ export async function POST(request: NextRequest) {
 
   const { password } = await request.json().catch(() => ({}));
 
-  if (passwordMatches(password)) {
-    const response = NextResponse.json({ success: true });
-    response.cookies.set(SESSION_COOKIE, createSessionToken()!, {
+  const role = passwordRole(password);
+  if (role) {
+    const response = NextResponse.json({ success: true, role });
+    response.cookies.set(SESSION_COOKIE, createSessionToken(role)!, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: "strict",

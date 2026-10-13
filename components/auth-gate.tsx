@@ -3,7 +3,10 @@
 import { useState, useEffect } from "react";
 import { Lock } from "lucide-react";
 
-export function AuthGate({ children }: { children: React.ReactNode }) {
+type Role = "admin" | "viewer";
+
+// allow="admin": orders (default). allow="any": the ops dashboard, which colleagues may see too.
+export function AuthGate({ children, allow = "admin" }: { children: React.ReactNode; allow?: "admin" | "any" }) {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [authed, setAuthed] = useState(false);
@@ -18,7 +21,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
           return;
         }
         if (data.authenticated) {
-          setAuthed(true);
+          enter(data.role);
         }
       })
       .catch(() => {
@@ -28,6 +31,14 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
         setChecking(false);
       });
   }, []);
+
+  function enter(role: Role | undefined) {
+    if (allow === "admin" && role !== "admin") {
+      window.location.href = "/ops"; // colleagues only see the ops dashboard
+      return;
+    }
+    setAuthed(true);
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -40,7 +51,8 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
     });
 
     if (res.ok) {
-      setAuthed(true);
+      const data = await res.json().catch(() => ({}));
+      enter(data.role);
       return;
     }
 
