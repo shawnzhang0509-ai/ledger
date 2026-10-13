@@ -137,6 +137,9 @@ function HomeContent() {
             <p className="text-slate-500 text-sm mt-1">订单管理 · 利润统计 · 数据导入导出</p>
           </div>
           <div className="flex flex-wrap items-center gap-3">
+            <a href="/ops" className="px-4 py-2 border border-slate-300 rounded-lg hover:bg-white transition text-sm font-medium text-slate-700">
+              运营看板
+            </a>
             <ImportExport orders={orders} onImport={refresh} />
             <button
               onClick={() => { setEditingOrder(null); setShowForm(true); }}
