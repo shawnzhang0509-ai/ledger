@@ -10,12 +10,14 @@ export async function GET(request: NextRequest) {
   return NextResponse.json(await catalogData());
 }
 
-// PUT: only the owner (admin password) sets prices. A saved price is the approval: the server lists the product
-// on Trade Me (if ticked) or changes the live Trade Me price within 30 minutes.
+// PUT: anyone on the team sets prices (admin or viewer login: the three of them have the same rights). A saved price
+// is the approval: the server lists the product on Trade Me (if ticked) or changes the live price within 30 minutes.
+// The driftae-ops server writes here too, but only after `dt catalog reprice` has checked the WeChat approval code of
+// the person who asked ("所有的涨 5%" → 改价 <code>); updatedBy names that person's bot.
 export async function PUT(request: NextRequest) {
-  if (sessionRole(request) !== "admin") {
-    return NextResponse.json({ error: "只有管理员可以改价格" }, { status: 403 });
-  }
+  const server = pushTokenMatches(request.headers.get("authorization"));
+  const role = server ? null : sessionRole(request);
+  if (!server && !role) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const b = await request.json().catch(() => ({}));
   const id = String(b.product_id ?? "");
   const price = b.price === null || b.price === "" || b.price === undefined ? null : Number(b.price);
@@ -24,6 +26,7 @@ export async function PUT(request: NextRequest) {
   }
   const title = typeof b.title === "string" && b.title.trim() ? b.title.trim().slice(0, 80) : null;
   await setCatalogPrice({ product_id: id, price: price === null ? null : Math.round(price * 100) / 100,
-                          list_on_trademe: Boolean(b.list_on_trademe), title, updated_by: "admin" });
+                          list_on_trademe: Boolean(b.list_on_trademe), title,
+                          updated_by: role ?? `bot:${String(b.updatedBy ?? "").replace(/[^\w-]/g, "").slice(0, 40) || "server"}` });
   return NextResponse.json({ success: true });
 }

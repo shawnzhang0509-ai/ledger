@@ -32,7 +32,7 @@ function Catalog() {
   const [prices, setPrices] = useState<Record<string, Price>>({});
   const [status, setStatus] = useState<Record<string, Status>>({});
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
-  const [admin, setAdmin] = useState(false);
+  const [canEdit, setCanEdit] = useState(false);
   const [saving, setSaving] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -47,7 +47,7 @@ function Catalog() {
     setProducts(p);
     setPrices(Object.fromEntries(c.prices.map((x: Price) => [x.product_id, x])));
     setStatus(Object.fromEntries(c.status.map((x: Status) => [x.product_id, x])));
-    setAdmin(a.role === "admin");
+    setCanEdit(Boolean(a.role));
     setDrafts(Object.fromEntries(p.map((x: Product) => {
       const pr = c.prices.find((y: Price) => y.product_id === x.id);
       return [x.id, { price: pr?.price?.toString() ?? "", list: pr?.list_on_trademe ?? false, title: pr?.title ?? "" }];
@@ -91,9 +91,9 @@ function Catalog() {
           <div>
             <h1 className="text-2xl font-bold text-slate-900">商品与价格</h1>
             <p className="text-sm text-slate-500 mt-1">
-              {admin
+              {canEdit
                 ? "填一口价并勾选“上 Trade Me”= 批准上架；已在 Trade Me 上的，改这里的价格 = 批准改价。服务器每 30 分钟同步一次，每次最多上新 5 件。"
-                : "只有管理员可以改价格。"}
+                : "登录后可以改价格。"}
             </p>
           </div>
           <div className="flex items-center gap-3 text-sm">
@@ -121,21 +121,21 @@ function Catalog() {
                     )}
                     {st?.message && st.state !== "listed" && <span className="text-slate-500"> · {st.message}</span>}
                   </div>
-                  <input value={d.title} disabled={!admin} onChange={(e) => set(p.id, { title: e.target.value })} maxLength={80}
+                  <input value={d.title} disabled={!canEdit} onChange={(e) => set(p.id, { title: e.target.value })} maxLength={80}
                     placeholder={st?.title ? `Trade Me 标题：${st.title}` : "Trade Me 标题（留空自动生成）"}
                     className="w-full px-2 py-1 border border-slate-200 rounded text-xs disabled:bg-slate-50" />
                 </div>
                 <div className="flex items-center gap-2">
                   <div className="relative">
                     <span className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400 text-sm">$</span>
-                    <input value={d.price} disabled={!admin} inputMode="decimal" onChange={(e) => set(p.id, { price: e.target.value.replace(/[^\d.]/g, "") })}
+                    <input value={d.price} disabled={!canEdit} inputMode="decimal" onChange={(e) => set(p.id, { price: e.target.value.replace(/[^\d.]/g, "") })}
                       placeholder="一口价" className="w-24 pl-5 pr-2 py-1.5 border border-slate-300 rounded text-sm disabled:bg-slate-50" />
                   </div>
                   <label className="flex items-center gap-1 text-xs text-slate-600 whitespace-nowrap">
-                    <input type="checkbox" checked={d.list} disabled={!admin} onChange={(e) => set(p.id, { list: e.target.checked })} />
+                    <input type="checkbox" checked={d.list} disabled={!canEdit} onChange={(e) => set(p.id, { list: e.target.checked })} />
                     上 Trade Me
                   </label>
-                  {admin && (
+                  {canEdit && (
                     <button onClick={() => save(p.id)} disabled={!changed(p.id) || saving === p.id}
                       className="px-2.5 py-1.5 text-xs rounded bg-slate-800 text-white disabled:bg-slate-200 disabled:text-slate-400">
                       {saving === p.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : saved === p.id ? <Check className="w-3.5 h-3.5" /> : "保存"}
