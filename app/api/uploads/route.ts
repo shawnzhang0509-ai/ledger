@@ -33,10 +33,13 @@ export async function DELETE(request: NextRequest) {
 }
 
 // POST {action: "presign"} → a 10-minute URL to PUT one JPEG into R2 under uploads/.
-// POST {action: "complete", key, ...} → record it once the browser's PUT succeeded.
+// POST {action: "complete", key, ...} → record it once the browser's (or the server's) PUT succeeded.
+// The driftae-ops server (Bearer METRICS_PUSH_TOKEN) uploads photos sent to a team member's WeChat bot;
+// it names whose bot in uploadedBy, recorded as "bot:<name>".
 export async function POST(request: NextRequest) {
-  const role = sessionRole(request);
-  if (!role) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const server = pushTokenMatches(request.headers.get("authorization"));
+  const role = server ? null : sessionRole(request);
+  if (!server && !role) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (!r2Config()) return NextResponse.json({ error: "R2 未配置：在 Vercel 加 R2_* 环境变量" }, { status: 500 });
   const body = await request.json().catch(() => ({}));
 
@@ -59,7 +62,8 @@ export async function POST(request: NextRequest) {
     if (!head.ok) return NextResponse.json({ error: "File not found in R2" }, { status: 400 });
     const str = (v: unknown, n: number) => (typeof v === "string" && v.trim() ? v.trim().slice(0, n) : null);
     await addPhoto({ key, url: publicUrl(key)!, product_id: str(body.productId, 120), product_name: str(body.productName, 200),
-                     note: str(body.note, 300), width, height, uploaded_by: role });
+                     note: str(body.note, 300), width, height,
+                     uploaded_by: role ?? `bot:${str(body.uploadedBy, 40)?.replace(/[^\w-]/g, "") || "server"}` });
     return NextResponse.json({ success: true, url: publicUrl(key) });
   }
 
