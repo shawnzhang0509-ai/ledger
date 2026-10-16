@@ -98,6 +98,7 @@ function OpsContent() {
             </p>
           </div>
           <div className="flex items-center gap-3 text-sm">
+            <a href="/catalog" className="text-slate-500 hover:text-slate-800">商品与价格</a>
             <a href="/photos" className="text-slate-500 hover:text-slate-800">上传照片</a>
             <a href="/" className="text-slate-500 hover:text-slate-800">订单</a>
             <button onClick={load} className="flex items-center gap-1.5 px-3 py-1.5 border border-slate-300 rounded-lg hover:bg-white">
