@@ -181,3 +181,36 @@ export async function saveCatalogStatus(rows: CatalogStatus[]) {
       ON CONFLICT (product_id) DO UPDATE SET state = EXCLUDED.state, listing_id = EXCLUDED.listing_id,
         tm_price = EXCLUDED.tm_price, message = EXCLUDED.message, title = EXCLUDED.title, at = EXCLUDED.at`));
 }
+
+// ---------- where a Messenger conversation came from (ad / m.me?ref=), from Meta's webhook ----------
+
+export type MessengerReferral = { id: number; psid: string; source: string | null; type: string | null; ref: string | null;
+  ad_id: string | null; ad_title: string | null; at: string };
+
+let referralsReady = false;
+
+async function ensureReferrals(sql: NonNullable<ReturnType<typeof client>>) {
+  if (referralsReady) return;
+  await sql`CREATE TABLE IF NOT EXISTS messenger_referrals (
+    id bigserial PRIMARY KEY, psid text NOT NULL, source text, type text, ref text, ad_id text, ad_title text,
+    at timestamptz NOT NULL, UNIQUE (psid, at))`;
+  referralsReady = true;
+}
+
+export async function saveReferrals(rows: Omit<MessengerReferral, "id">[]) {
+  const sql = client();
+  if (!sql || !rows.length) return;
+  await ensureReferrals(sql);
+  await sql.transaction(rows.map((r) => sql`INSERT INTO messenger_referrals (psid, source, type, ref, ad_id, ad_title, at)
+      VALUES (${r.psid}, ${r.source}, ${r.type}, ${r.ref}, ${r.ad_id}, ${r.ad_title}, ${r.at}::timestamptz)
+      ON CONFLICT (psid, at) DO NOTHING`));
+}
+
+export async function listReferrals(afterId = 0, limit = 500): Promise<MessengerReferral[]> {
+  const sql = client();
+  if (!sql) return [];
+  await ensureReferrals(sql);
+  return (await sql`SELECT id, psid, source, type, ref, ad_id, ad_title,
+                           to_char(at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS at
+                    FROM messenger_referrals WHERE id > ${afterId} ORDER BY id LIMIT ${limit}`) as MessengerReferral[];
+}
