@@ -38,7 +38,7 @@ export async function POST(request: NextRequest) {
   if (!signatureValid(raw, request.headers.get("x-hub-signature-256"))) {
     return NextResponse.json({ error: "Bad signature" }, { status: 401 });
   }
-  let body: { object?: string; entry?: { messaging?: MessagingEvent[] }[] };
+  let body: { object?: string; entry?: { messaging?: MessagingEvent[]; standby?: MessagingEvent[] }[] };
   try {
     body = JSON.parse(raw);
   } catch {
@@ -48,7 +48,17 @@ export async function POST(request: NextRequest) {
 
   const rows: Omit<MessengerReferral, "id">[] = [];
   for (const entry of body.entry ?? []) {
-    for (const ev of entry.messaging ?? []) {
+    // Shape only (key names, never text or ids), to see which events Meta sends; remove once settled.
+    console.log("messenger webhook", JSON.stringify({
+      entry: Object.keys(entry),
+      events: [...(entry.messaging ?? []), ...(entry.standby ?? [])].map((ev) => ({
+        keys: Object.keys(ev),
+        message: ev.message ? Object.keys(ev.message) : undefined,
+        postback: ev.postback ? Object.keys(ev.postback) : undefined,
+      })),
+    }));
+    // standby: when another app is the Page's primary receiver, events arrive here instead.
+    for (const ev of [...(entry.messaging ?? []), ...(entry.standby ?? [])]) {
       // messaging_referrals events carry it at the top; a first message from an ad, or a Get Started
       // postback, carries it inside the message / postback.
       const r = ev.referral ?? ev.message?.referral ?? ev.postback?.referral;
