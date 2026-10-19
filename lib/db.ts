@@ -279,3 +279,13 @@ export async function unsubscribe(token: string) {
     WHERE token = ${token} AND unsubscribed_at IS NULL RETURNING email`;
   return rows.length > 0;
 }
+
+/** A customer asked us (Messenger or email) to stop: same effect as the link. */
+export async function unsubscribeEmail(email: string) {
+  const sql = client();
+  if (!sql || !email) return false;
+  await ensureSubscribers(sql);
+  const rows = await sql`UPDATE subscribers SET unsubscribed_at = now()
+    WHERE email = ${email} AND unsubscribed_at IS NULL RETURNING email`;
+  return rows.length > 0;
+}

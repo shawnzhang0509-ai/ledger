@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { activeSubscribers, addSubscriber, subscriberCounts } from "@/lib/db";
+import { activeSubscribers, addSubscriber, subscriberCounts, unsubscribeEmail } from "@/lib/db";
 import { pushTokenMatches } from "@/lib/session";
 import { cleanEmail, newToken } from "@/lib/subscribe";
 
@@ -19,6 +19,10 @@ export async function POST(request: NextRequest) {
   }
   const body = await request.json().catch(() => ({}));
   const email = cleanEmail(body.email);
+  if (body.action === "unsubscribe") {
+    if (!email) return NextResponse.json({ error: "Need email" }, { status: 400 });
+    return NextResponse.json({ ok: true, unsubscribed: await unsubscribeEmail(email) });
+  }
   const consent = String(body.consent_text ?? "").trim().slice(0, 500);
   if (!email || !consent) return NextResponse.json({ error: "Need email and consent_text" }, { status: 400 });
   const added = await addSubscriber({ email, source: String(body.source ?? "messenger").slice(0, 20), consent_text: consent,
