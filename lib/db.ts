@@ -194,6 +194,9 @@ async function ensureReferrals(sql: NonNullable<ReturnType<typeof client>>) {
   await sql`CREATE TABLE IF NOT EXISTS messenger_referrals (
     id bigserial PRIMARY KEY, psid text NOT NULL, source text, type text, ref text, ad_id text, ad_title text,
     at timestamptz NOT NULL, UNIQUE (psid, at))`;
+  // rows saved before seconds-timestamps were handled landed in January 1970
+  await sql`UPDATE messenger_referrals SET at = to_timestamp(extract(epoch FROM at) * 1000)
+            WHERE at < '2000-01-01'`;
   referralsReady = true;
 }
 
