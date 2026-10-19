@@ -66,7 +66,7 @@ function BooksContent() {
               </div>
               <div className="flex flex-wrap gap-x-5 gap-y-1 mt-3 text-sm text-slate-600">
                 {SPLIT.map(([k, label, cls]) => (
-                  <span key={k} className="flex items-center gap-1.5"><span className={`w-3 h-3 rounded-sm ${cls}`} />{label} {t.split![k]}%</span>
+                  <span key={k} className="flex items-center gap-1.5"><span className={`w-3 h-3 rounded-sm ${cls}`} />{label} {Math.round(t.split![k])}%</span>
                 ))}
               </div>
             </>

@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 
 const W = 1080, PAD = 48, ROW = 46, MAX_ROWS = 14, MAX_FLAGS = 8, FLAG_LINE = 30;
 // Rough wrapped line count for a flag at 20px across the ~930px box (CJK ≈ 20px, Latin ≈ 11px).
-const flagLines = (s: string) => Math.max(1, Math.ceil(Array.from(s).reduce((w, ch) => w + (ch.charCodeAt(0) > 0x2e80 ? 20 : 11), 0) / 900));
+const flagLines = (s: string) => Math.max(1, Math.ceil(Array.from(s).reduce((w, ch) => w + (ch.charCodeAt(0) > 0x2e80 ? 20 : 10), 0) / 930));
 const C = { bg: "#111318", card: "#1b1f27", text: "#f0f2f5", muted: "#9aa3ae", green: "#58ca84", red: "#e86060",
   amber: "#f3ba4e", flagBg: "#3a2420", flagText: "#f6d5c8" };
 const SPLIT = [["purchase", "进货", "#6b8afd"], ["air", "空运", "#a77bf3"], ["courier", "快递", "#4fb8c9"],
@@ -46,7 +46,7 @@ export async function GET(request: NextRequest) {
   const missingCount = t.orders - t.complete;
   const kpis: [string, string, string][] = [
     ["销售额（含运费）", money(t.revenue), C.text],
-    [`已算清的毛利（${t.complete}/${t.orders} 单）`, t.complete ? money(t.completeGp) : "—", t.completeGp < 0 ? C.red : C.green],
+    [`毛利（算清 ${t.complete}/${t.orders} 单）`, t.complete ? money(t.completeGp) : "—", !t.complete ? C.muted : t.completeGp < 0 ? C.red : C.green],
     ["毛利率（算清的单）", t.marginPct == null ? "—" : `${t.marginPct}%`, C.text],
     ["缺成本", `${missingCount} 单`, missingCount ? C.amber : C.green],
   ];
@@ -55,11 +55,11 @@ export async function GET(request: NextRequest) {
   const sub = `截至 ${nzTime(b.asOf)} · ${t.orders} 单（不含已取消）`;
 
   const flagH = shownFlags.length ? 90 + shownFlags.reduce((h, f) => h + flagLines(f) * FLAG_LINE + 10, 0) + (flags.length > MAX_FLAGS ? 36 : 0) : 0;
-  const H = PAD + 110 + 150 + 24 + 150 + 24 + (90 + rows.length * ROW + (b.lines.length > MAX_ROWS ? 36 : 0)) + 24 + flagH + 90 + PAD;
+  const H = PAD + 110 + 150 + 24 + 150 + 24 + (90 + rows.length * ROW + (b.lines.length > MAX_ROWS ? 36 : 0)) + 24 + flagH + 60 + PAD;
 
   const allText = [title, sub, footer, ...kpis.flat(), ...SPLIT.map((s) => s[1]), ...rows.flatMap((l) => [l.model, gpCell(l).text, money(l.price + l.shipping)]),
     ...shownFlags, "费用组成（成本齐全的单，占销售额）", "还没有成本齐全的单，算不出费用组成。补上进货价、汇率、空运费、快递成本就有了。",
-    "逐单", "车型", "售价+运费", "毛利", "需要核对", "还有", "单没列出", "条", "0123456789$.,%−·（）/：— "].join("");
+    "逐单", "车型", "售价+运费", "毛利", "需要核对", "还有", "单没列出", "条", "0123456789$.,%−·（）/：—… "].join("");
   const [regular, bold] = await Promise.all([font(allText, 400), font(allText, 700)]);
 
   const box = { display: "flex", flexDirection: "column" as const, background: C.card, borderRadius: 16, padding: "22px 26px" };
@@ -93,7 +93,7 @@ export async function GET(request: NextRequest) {
                 {SPLIT.map(([k, label, color]) => (
                   <div key={k} style={{ display: "flex", alignItems: "center" }}>
                     <div style={{ width: 14, height: 14, borderRadius: 4, background: color, marginRight: 8 }} />
-                    <div>{`${label} ${t.split![k]}%`}</div>
+                    <div>{`${label} ${Math.round(t.split![k])}%`}</div>
                   </div>
                 ))}
               </div>
