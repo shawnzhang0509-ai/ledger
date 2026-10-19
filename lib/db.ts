@@ -217,3 +217,65 @@ export async function listReferrals(afterId = 0, limit = 500): Promise<Messenger
                            to_char(at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS at
                     FROM messenger_referrals WHERE id > ${afterId} ORDER BY id LIMIT ${limit}`) as MessengerReferral[];
 }
+
+// Email list (owner 2026-10-19): customers who said yes to new-arrival and members-only emails, from Messenger
+// (the bot's one pre-approved question) or the website form. NZ's Unsolicited Electronic Messages Act: consent first,
+// how it was given is kept (consent_text, source, consented_at), and an unsubscribe stops mail at once.
+export type Subscriber = {
+  email: string; source: string; consent_text: string | null; consented_at: string; token: string;
+};
+
+let subscribersReady = false;
+
+async function ensureSubscribers(sql: NonNullable<ReturnType<typeof client>>) {
+  if (subscribersReady) return;
+  await sql`CREATE TABLE IF NOT EXISTS subscribers (
+    email text PRIMARY KEY, source text NOT NULL, consent_text text, psid text, added_by text,
+    consented_at timestamptz NOT NULL DEFAULT now(), unsubscribed_at timestamptz,
+    token text NOT NULL UNIQUE)`;
+  subscribersReady = true;
+}
+
+/** Add or re-confirm a subscriber. A fresh yes after an unsubscribe counts as new consent. */
+export async function addSubscriber(s: { email: string; source: string; consent_text?: string | null; psid?: string | null;
+  added_by?: string | null; token: string }) {
+  const sql = client();
+  if (!sql) throw new Error("DATABASE_NOT_CONFIGURED");
+  await ensureSubscribers(sql);
+  const rows = await sql`INSERT INTO subscribers (email, source, consent_text, psid, added_by, token)
+    VALUES (${s.email}, ${s.source}, ${s.consent_text ?? null}, ${s.psid ?? null}, ${s.added_by ?? null}, ${s.token})
+    ON CONFLICT (email) DO UPDATE SET source = EXCLUDED.source, consent_text = EXCLUDED.consent_text,
+      psid = COALESCE(EXCLUDED.psid, subscribers.psid), added_by = EXCLUDED.added_by,
+      consented_at = now(), unsubscribed_at = NULL
+    RETURNING (xmax = 0) AS inserted`;
+  return Boolean((rows[0] as { inserted?: boolean } | undefined)?.inserted);
+}
+
+export async function activeSubscribers(): Promise<Subscriber[]> {
+  const sql = client();
+  if (!sql) return [];
+  await ensureSubscribers(sql);
+  return (await sql`SELECT email, source, consent_text, token,
+      to_char(consented_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS consented_at
+    FROM subscribers WHERE unsubscribed_at IS NULL ORDER BY consented_at`) as Subscriber[];
+}
+
+export async function subscriberCounts() {
+  const sql = client();
+  if (!sql) return { active: 0, unsubscribed: 0 };
+  await ensureSubscribers(sql);
+  const [r] = (await sql`SELECT count(*) FILTER (WHERE unsubscribed_at IS NULL)::int AS active,
+    count(*) FILTER (WHERE unsubscribed_at IS NOT NULL)::int AS unsubscribed FROM subscribers`) as
+    { active: number; unsubscribed: number }[];
+  return r;
+}
+
+/** Unsubscribe by the token in each email's link; true when it matched someone still subscribed. */
+export async function unsubscribe(token: string) {
+  const sql = client();
+  if (!sql || !token) return false;
+  await ensureSubscribers(sql);
+  const rows = await sql`UPDATE subscribers SET unsubscribed_at = now()
+    WHERE token = ${token} AND unsubscribed_at IS NULL RETURNING email`;
+  return rows.length > 0;
+}
