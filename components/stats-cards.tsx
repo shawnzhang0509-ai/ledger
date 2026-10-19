@@ -1,19 +1,18 @@
 import { Order } from "@/lib/data";
+import { booksReport } from "@/lib/books";
 import { Package, DollarSign, TrendingUp, Percent } from "lucide-react";
 
+// Profit counts only orders whose costs are all in; an order with blank costs would otherwise
+// show its whole sale as profit. Breakdown on /books.
 export function StatsCards({ orders }: { orders: Order[] }) {
-  const totalOrders = orders.length;
-  const totalSales = orders.reduce((sum, o) => sum + o.sellingPrice, 0);
-  const totalProfit = orders.reduce((sum, o) => sum + o.grossProfit, 0);
-  const avgMargin = totalSales > 0 ? (totalProfit / totalSales) * 100 : 0;
+  const t = booksReport(orders).totals;
 
   const stats = [
-    { label: "总订单", value: totalOrders, icon: Package, color: "text-blue-600" },
-    { label: "总销售额 (NZD)", value: `$${totalSales.toFixed(2)}`, icon: DollarSign, color: "text-emerald-600" },
-    { label: "总毛利 (NZD)", value: `$${totalProfit.toFixed(2)}`, icon: TrendingUp, color: totalProfit >= 0 ? "text-emerald-600" : "text-red-600" },
-    { label: "平均毛利率", value: `${avgMargin.toFixed(1)}%`, icon: Percent, color: avgMargin >= 0 ? "text-emerald-600" : "text-red-600" },
+    { label: "总订单（不含已取消）", value: t.orders, icon: Package, color: "text-blue-600" },
+    { label: "总销售额 (NZD，含运费)", value: `$${t.revenue.toFixed(2)}`, icon: DollarSign, color: "text-emerald-600" },
+    { label: `已算清的毛利（${t.complete}/${t.orders} 单）`, value: `$${t.completeGp.toFixed(2)}`, icon: TrendingUp, color: t.completeGp >= 0 ? "text-emerald-600" : "text-red-600" },
+    { label: "毛利率（算清的单）", value: t.marginPct == null ? "—" : `${t.marginPct.toFixed(1)}%`, icon: Percent, color: (t.marginPct ?? 0) >= 0 ? "text-emerald-600" : "text-red-600" },
   ];
-
   return (
     <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
       {stats.map((stat) => (
