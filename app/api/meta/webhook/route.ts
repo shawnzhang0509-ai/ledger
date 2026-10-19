@@ -31,6 +31,8 @@ type MessagingEvent = {
   referral?: Referral; message?: { referral?: Referral }; postback?: { referral?: Referral };
 };
 
+// Most events carry milliseconds, but m.me referral events have arrived in seconds.
+const eventTime = (t?: number) => new Date(!t ? Date.now() : t < 1e12 ? t * 1000 : t).toISOString();
 const clip = (v: unknown, n: number) => (v == null ? null : String(v).slice(0, n));
 
 export async function POST(request: NextRequest) {
@@ -66,7 +68,7 @@ export async function POST(request: NextRequest) {
       rows.push({
         psid: clip(ev.sender.id, 64)!, source: clip(r.source, 40), type: clip(r.type, 40), ref: clip(r.ref, 200),
         ad_id: clip(r.ad_id, 40), ad_title: clip(r.ads_context_data?.ad_title, 200),
-        at: new Date(ev.timestamp ?? Date.now()).toISOString(),
+        at: eventTime(ev.timestamp),
       });
     }
   }
