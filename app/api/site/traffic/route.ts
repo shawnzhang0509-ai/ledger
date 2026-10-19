@@ -12,6 +12,7 @@ type Row = { pageviews: number; visitors: number; [k: string]: unknown };
 async function query(path: "count" | "aggregate", params: Record<string, string>) {
   const qs = new URLSearchParams({ projectId: process.env.VERCEL_ANALYTICS_PROJECT || "diecast", ...params });
   if (process.env.VERCEL_TEAM_ID) qs.set("teamId", process.env.VERCEL_TEAM_ID);
+  else qs.set("slug", process.env.VERCEL_TEAM_SLUG || "shawns-projects-cc18d205"); // team that owns diecast + ledger
   const res = await fetch(`${API}/${path}?${qs}`, {
     headers: { Authorization: `Bearer ${process.env.VERCEL_ANALYTICS_TOKEN}` },
     cache: "no-store",
