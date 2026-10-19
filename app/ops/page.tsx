@@ -30,6 +30,11 @@ type Snapshot = {
   orders_daily: { day: string; orders: number; revenue: number }[];
   trademe: { listing_id: number; title: string; price: number; views: number; watchers: number; end: string | null; synced: string }[];
   trademe_ended_early?: { listing_id: number; title: string; price: number; end: string; seen_gone: string }[];
+  trademe_daily?: {
+    days: string[];
+    rows: { product_ids: string[]; title: string; listing_id: number; price: number; live: boolean; relisted: string[];
+      views: (number | null)[]; watchers: (number | null)[] }[];
+  };
 };
 type Point = { metric_id: string; day: string; value: number | null; status: string };
 
@@ -245,6 +250,8 @@ function OpsContent() {
           </Table>
         </Section>
 
+        {snap.trademe_daily && snap.trademe_daily.rows.length > 0 && <TradeMeDaily daily={snap.trademe_daily} />}
+
         <Section title="团队活动与审批">
           <div className="grid lg:grid-cols-2 gap-4">
             <Card title="岗位" note="近 30 天。干活 = 起草、建广告、写知识库；巡检 = 查收件箱、查账户。">
@@ -310,6 +317,43 @@ function Spark({ points }: { points: Point[] }) {
     <svg viewBox="0 0 88 24" className="w-[5.5rem] h-6" aria-hidden="true">
       <polyline points={xy} fill="none" stroke={last === "bad" ? "#dc2626" : "#64748b"} strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" />
     </svg>
+  );
+}
+
+// Views added each day per product (since the previous day's last sync), so a relist doesn't reset the line.
+function TradeMeDaily({ daily }: { daily: NonNullable<Snapshot["trademe_daily"]> }) {
+  const n = Math.min(7, daily.days.length);
+  const days = daily.days.slice(-n);
+  const max = Math.max(1, ...daily.rows.flatMap((r) => r.views.slice(-n).map((v) => v ?? 0)));
+  return (
+    <Section title="Trade Me 每天浏览（按商品）" note="每格 = 当天新增浏览。重新上架不清零（↻ = 那天重新上架）；· = 那天不在架。最后一天还没过完。">
+      <Table head={["商品", ...days.map((d) => d.slice(5)), "7 天", "关注"]}>
+        {daily.rows.map((r) => {
+          const views = r.views.slice(-n);
+          const watchers = r.watchers.filter((w) => w !== null);
+          return (
+            <tr key={r.product_ids.join(",") || r.title} className={r.live ? "" : "text-slate-400"}>
+              <Td>
+                <a className={r.live ? "text-blue-700 hover:underline" : "hover:underline"} href={`https://www.trademe.co.nz/a/listing/${r.listing_id}`} target="_blank" rel="noopener noreferrer">{r.title}</a>
+                {!r.live && " （已下架）"}
+              </Td>
+              {views.map((v, i) => (
+                <Td num key={days[i]}>
+                  {v === null ? <span className="text-slate-300">·</span> : (
+                    <span className="inline-flex items-center gap-1">
+                      {r.relisted.includes(days[i]) && <span className="text-slate-400" title="这天重新上架">↻</span>}
+                      <span className="inline-block rounded px-1" style={{ background: v ? `rgba(37, 99, 235, ${0.08 + 0.4 * (v / max)})` : undefined }}>{v}</span>
+                    </span>
+                  )}
+                </Td>
+              ))}
+              <Td num><span className="font-medium">{views.reduce<number>((a, v) => a + (v ?? 0), 0)}</span></Td>
+              <Td num>{watchers.length ? watchers[watchers.length - 1] : "—"}</Td>
+            </tr>
+          );
+        })}
+      </Table>
+    </Section>
   );
 }
 
