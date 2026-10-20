@@ -72,7 +72,7 @@ export async function POST(request: NextRequest) {
                   <div style={{ width: PHOTO_W, height: PHOTO_H, display: "flex", alignItems: "center", justifyContent: "center", color: C.muted, fontSize: 20, borderRight: `1px solid ${C.line}` }}>无图</div>
                 )}
                 <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", padding: "0 26px" }}>
-                  <div style={{ fontSize: 24, fontWeight: 700, lineHeight: 1.3, maxHeight: 64, overflow: "hidden" }}>{c.title}</div>
+                  <div style={{ fontSize: 24, fontWeight: 700, lineHeight: 1.3, maxHeight: 68, overflow: "hidden" }}>{c.title}</div>
                   {c.line ? <div style={{ fontSize: 22, color: C.muted, marginTop: 10 }}>{c.line}</div> : null}
                 </div>
               </div>
