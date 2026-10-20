@@ -149,6 +149,9 @@ function HomeContent() {
             <a href="/photos" className="px-4 py-2 border border-slate-300 rounded-lg hover:bg-white transition text-sm font-medium text-slate-700">
               上传照片
             </a>
+            <a href="/team" className="px-4 py-2 border border-slate-300 rounded-lg hover:bg-white transition text-sm font-medium text-slate-700">
+              bot 能做什么
+            </a>
             <ImportExport orders={orders} onImport={refresh} />
             <button
               onClick={() => { setEditingOrder(null); setShowForm(true); }}

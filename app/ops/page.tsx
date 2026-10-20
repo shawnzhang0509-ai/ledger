@@ -41,7 +41,7 @@ type Point = { metric_id: string; day: string; value: number | null; status: str
 const ROLES: [string, string][] = [
   ["customer-service", "客服"], ["marketing", "营销"], ["sales", "销售（Trade Me）"], ["finance", "财务"], ["owner", "你（owner）"],
 ];
-const SOURCE_NAMES: Record<string, string> = { meta: "Meta 广告 / Messenger", trademe: "Trade Me", orders: "订单系统", ledger: "agent 记录" };
+const SOURCE_NAMES: Record<string, string> = { meta: "Meta 广告 / Messenger", trademe: "Trade Me", orders: "订单系统", ledger: "agent 记录", bots: "bot 能力表" };
 const money = (n: number) => `$${n.toFixed(2)}`;
 const when = (iso: string | null | undefined) => (iso ? iso.slice(5, 16).replace("T", " ") : "—");
 const fmt = (m: Metric, v: number | null) =>
@@ -103,6 +103,7 @@ function OpsContent() {
             </p>
           </div>
           <div className="flex items-center gap-3 text-sm">
+            <a href="/team" className="text-slate-500 hover:text-slate-800">bot 能做什么</a>
             <a href="/catalog" className="text-slate-500 hover:text-slate-800">商品与价格</a>
             <a href="/photos" className="text-slate-500 hover:text-slate-800">上传照片</a>
             <a href="/" className="text-slate-500 hover:text-slate-800">订单</a>
