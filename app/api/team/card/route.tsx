@@ -58,7 +58,7 @@ export async function POST(request: NextRequest) {
                 <div style={{ display: "flex", flexDirection: "column", flex: 1, overflow: "hidden" }}>
                   <div style={{ fontSize: 24, fontWeight: 700 }}>{i.name}</div>
                   <div style={{ fontSize: 18, color: C.muted, marginTop: 2, overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" }}>
-                    {line(i)}{i.status ? ` · ${i.status}` : ""}
+                    {`${line(i)}${i.status ? ` · ${i.status}` : ""}`}
                   </div>
                 </div>
                 {i.code ? <div style={{ fontSize: 20, color: C.amber, border: `1px solid ${C.amber}`, borderRadius: 999, padding: "4px 14px", marginLeft: 16 }}>{`回「${i.code} 码」`}</div> : null}
