@@ -58,16 +58,16 @@ export async function POST(request: NextRequest) {
 
   if (action === "fill") {
     if (at < 0) return bad("Need id");
-    const cur = stock[at] as StockItem & Record<string, unknown>;
+    const cur = stock[at] as unknown as Record<string, unknown> & StockItem;
     const filled: string[] = [];
     const kept: { field: string; recorded: unknown; offered: unknown }[] = [];
     for (const [k, v] of Object.entries(fields)) {
       if (k === "status" || k === "location") {
         // where the car is and whether it's listed are its state, not a recorded value; Sold only via sell/return
         if (v === "Sold" || cur.status === "Sold") { if (v !== cur[k]) kept.push({ field: k, recorded: cur[k], offered: v }); }
-        else if (v !== cur[k]) { cur[k] = v; filled.push(k); }
+        else if (v !== cur[k]) { (cur as Record<string, unknown>)[k] = v; filled.push(k); }
       } else if (empty(cur[k])) {
-        cur[k] = v; filled.push(k);
+        (cur as Record<string, unknown>)[k] = v; filled.push(k);
       } else if (cur[k] !== v) {
         kept.push({ field: k, recorded: cur[k], offered: v });
       }
