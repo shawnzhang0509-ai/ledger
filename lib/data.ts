@@ -1,3 +1,6 @@
+export const DELIVERY_MODES = ["courier", "air-door"] as const;
+export type DeliveryMode = (typeof DELIVERY_MODES)[number];
+
 export interface Order {
   id: string;
   orderId: string;
@@ -18,6 +21,9 @@ export interface Order {
   grossProfit: number;
   tracking: string;
   notes: string;
+  // "air-door": air freight is door to door, there is no separate courier cost (owner 2026-10-21).
+  // Not set = "courier" (old rows unchanged): a 0 courier cost then means "not filled in yet".
+  deliveryMode?: DeliveryMode;
   createdAt: string;
   updatedAt: string;
 }

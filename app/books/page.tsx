@@ -140,7 +140,7 @@ function Row({ l }: { l: BookLine }) {
       <td className="pr-4">{money(l.shipping)}</td>
       <td className="pr-4">{l.missing.includes("进货价") || l.missing.includes("汇率") ? <span className="text-amber-600">缺</span> : money(l.purchase)}</td>
       <td className="pr-4">{cost(l.air, "空运费")}</td>
-      <td className="pr-4">{cost(l.courier, "快递成本")}</td>
+      <td className="pr-4">{l.airDoor && !l.courier ? <span className="text-slate-500">空运门到门</span> : cost(l.courier, "快递成本")}</td>
       <td className="pr-4">{money(l.fee)}</td>
       <td className={`pr-4 font-medium ${!l.complete ? "text-slate-400" : l.gp < 0 ? "text-red-600" : "text-emerald-700"}`}>
         {l.complete ? money(l.gp) : "未算清"}

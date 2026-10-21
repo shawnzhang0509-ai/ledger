@@ -70,6 +70,7 @@ export function OrderForm({ order, onSubmit, onClose }: OrderFormProps) {
         sellingPrice: order.sellingPrice,
         tracking: order.tracking,
         notes: order.notes,
+        deliveryMode: order.deliveryMode,
       });
     } else {
       setForm(emptyOrder);
@@ -165,7 +166,6 @@ export function OrderForm({ order, onSubmit, onClose }: OrderFormProps) {
                   type="number"
                   step="0.01"
                   min="0"
-                  required
                   value={form.purchaseCostCny || ""}
                   onChange={(e) => handleChange("purchaseCostCny", parseFloat(e.target.value) || 0)}
                   className={inputClass}
@@ -179,8 +179,7 @@ export function OrderForm({ order, onSubmit, onClose }: OrderFormProps) {
                 <input
                   type="number"
                   step="0.0001"
-                  min="0.0001"
-                  required
+                  min="0"
                   value={form.exchangeRate || ""}
                   onChange={(e) => handleChange("exchangeRate", parseFloat(e.target.value) || 0)}
                   className={inputClass}
@@ -214,6 +213,14 @@ export function OrderForm({ order, onSubmit, onClose }: OrderFormProps) {
               </div>
             ))}
           </div>
+
+          <label className="flex items-center gap-2 text-sm text-slate-700">
+            <input type="checkbox" checked={form.deliveryMode === "air-door"}
+              onChange={(e) => setForm((prev) => ({ ...prev,
+                // unticking a row that was never set leaves it unset, so a bot may still fill it in
+                deliveryMode: e.target.checked ? "air-door" : order?.deliveryMode ? "courier" : undefined }))} />
+            {FIELD_LABELS.deliveryMode}：空运直接送到客人家，快递成本 0 不算漏填
+          </label>
 
           <div className="bg-slate-50 p-4 rounded-xl flex items-center justify-between border border-slate-200">
             <span className="font-medium text-slate-700">预估毛利</span>

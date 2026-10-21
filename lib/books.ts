@@ -13,6 +13,7 @@ export type BookLine = {
   complete: boolean;        // every cost is in, so gp is a real profit
   missing: string[];        // labels of the costs still blank
   flags: string[];          // numbers a person should check on the order page
+  airDoor: boolean;         // air freight door to door: a 0 courier cost is real, not missing
   stockId: string | null;   // the stock row this sale came from (or went back to, when returned)
   returned: boolean;        // the car came back: its purchase cost is on the stock row, the loss stays here
 };
@@ -43,7 +44,8 @@ function line(o: Order, today: string, dupes: Set<string>, stock: StockItem[]): 
     if (!o.exchangeRate) missing.push(COST_LABELS.rate);
   }
   if (!air) missing.push(COST_LABELS.air);
-  if (!courier) missing.push(COST_LABELS.courier);
+  const airDoor = o.deliveryMode === "air-door";
+  if (!courier && !airDoor) missing.push(COST_LABELS.courier);   // door-to-door air: no courier cost, not a blank
   const complete = missing.length === 0;
   const gp = r2(price + shipping - purchase - air - fee - courier);
 
@@ -63,7 +65,7 @@ function line(o: Order, today: string, dupes: Set<string>, stock: StockItem[]): 
     flags.push(`待处理已超过 ${PENDING_DAYS} 天：客人付款了吗？`);
 
   return { orderId: o.orderId, dateSold: o.dateSold, model: (o.model || "").trim(), status: o.status,
-    price, shipping, fee, purchase, air, courier, gp, complete, missing, flags, stockId: from?.id || null, returned };
+    price, shipping, fee, purchase, air, courier, gp, complete, missing, flags, airDoor, stockId: from?.id || null, returned };
 }
 
 function daysBetween(a: string, b: string) {

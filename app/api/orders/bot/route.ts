@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getKvClient } from "@/lib/kv";
-import { Order, STATUS_OPTIONS, calculateGrossProfit, normalizeOrderInput } from "@/lib/data";
+import { DELIVERY_MODES, DeliveryMode, Order, STATUS_OPTIONS, calculateGrossProfit, normalizeOrderInput } from "@/lib/data";
 import { pushTokenMatches } from "@/lib/session";
 
 // The team's WeChat bots (driftae-ops `dt orders …`, Bearer METRICS_PUSH_TOKEN) keep the books here.
@@ -17,6 +17,7 @@ const STATUS_RANK: Record<string, number> = { Pending: 0, Paid: 1, Shipped: 2, C
 
 type Fields = Partial<Record<(typeof MONEY)[number], number> & Record<(typeof TEXT)[number], string>> & {
   status?: Order["status"];
+  deliveryMode?: DeliveryMode;   // filled only while blank, like every other field
 };
 
 function clean(raw: Record<string, unknown>): Fields {
@@ -27,6 +28,7 @@ function clean(raw: Record<string, unknown>): Fields {
   }
   for (const k of TEXT) if (typeof raw[k] === "string" && raw[k]) out[k] = String(raw[k]).trim().slice(0, 200);
   if (typeof raw.status === "string" && raw.status in STATUS_RANK) out.status = raw.status;
+  if (DELIVERY_MODES.includes(raw.deliveryMode as DeliveryMode)) out.deliveryMode = raw.deliveryMode;
   return out as Fields;
 }
 
