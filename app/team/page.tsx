@@ -18,6 +18,7 @@ type Caps = {
   uncatalogued_jobs: { name: string; schedule: string; profile: string }[];
   uncatalogued_dt: string[];
   gaps?: { q: string; count: number; by: string[]; last: string }[];
+  jobs_drift?: { changed: string[]; missing: string[]; error: string | null };
 };
 const WHO: Record<string, string> = { shawn: "道长", wife: "太太", stella: "Stella" };
 
@@ -128,6 +129,14 @@ function TeamContent() {
             </section>
           );
         })}
+
+        {caps.jobs_drift && (caps.jobs_drift.changed.length > 0 || caps.jobs_drift.missing.length > 0) && (
+          <section className="bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-900">
+            <h2 className="font-semibold">服务器上的定时任务和代码仓库不一致（找道长）</h2>
+            {caps.jobs_drift.changed.length > 0 && <p className="mt-1">被改过：{caps.jobs_drift.changed.join("、")}</p>}
+            {caps.jobs_drift.missing.length > 0 && <p className="mt-1">服务器上没有：{caps.jobs_drift.missing.join("、")}</p>}
+          </section>
+        )}
 
         {(caps.uncatalogued_jobs.length > 0 || caps.uncatalogued_dt.length > 0) && (
           <section className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-900">
