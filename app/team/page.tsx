@@ -17,7 +17,9 @@ type Caps = {
   jobs_exported: string | null;
   uncatalogued_jobs: { name: string; schedule: string; profile: string }[];
   uncatalogued_dt: string[];
+  gaps?: { q: string; count: number; by: string[]; last: string }[];
 };
+const WHO: Record<string, string> = { shawn: "道长", wife: "太太", stella: "Stella" };
 
 const when = (iso: string | null | undefined) =>
   iso ? new Date(iso).toLocaleString("zh-CN", { timeZone: "Pacific/Auckland", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false }) : "—";
@@ -76,6 +78,27 @@ function TeamContent() {
             </button>
           </div>
         </header>
+
+        <section className="bg-white rounded-xl border border-slate-200 p-4 sm:p-5">
+          <div className="flex items-baseline justify-between gap-3 flex-wrap">
+            <h2 className="font-semibold text-slate-900">出不了图的问题</h2>
+            <p className="text-xs text-slate-500">近 30 天 bot 只能用文字回答的问题，问得越多越该先做成图</p>
+          </div>
+          {(caps.gaps ?? []).length === 0 ? (
+            <p className="text-sm text-slate-500 mt-3">还没有：大家问的都能出图。</p>
+          ) : (
+            <ol className="mt-3 divide-y divide-slate-100">
+              {(caps.gaps ?? []).map((g, n) => (
+                <li key={g.q} className="flex items-center gap-3 py-2 text-sm">
+                  <span className="w-6 text-slate-400">{n + 1}</span>
+                  <span className="flex-1 text-slate-900">{g.q}</span>
+                  <span className="text-xs text-slate-500 whitespace-nowrap">{g.by.map((b) => WHO[b] ?? b).join("、")} · {when(g.last)}</span>
+                  <span className="shrink-0 text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">{g.count} 次</span>
+                </li>
+              ))}
+            </ol>
+          )}
+        </section>
 
         <section className="bg-white rounded-xl border border-slate-200 p-4 sm:p-5">
           <h2 className="font-semibold text-slate-900">批准码怎么用</h2>
