@@ -1,4 +1,5 @@
 import { Order, getPurchaseCostNzd } from "@/lib/data";
+import type { StockItem } from "@/lib/stock";
 
 // One place for what the books say: each sale's cost breakdown, which costs are still missing, and the
 // numbers that look wrong. The /books page, the WeChat card (/api/orders/card) and the bots
@@ -12,6 +13,8 @@ export type BookLine = {
   complete: boolean;        // every cost is in, so gp is a real profit
   missing: string[];        // labels of the costs still blank
   flags: string[];          // numbers a person should check on the order page
+  stockId: string | null;   // the stock row this sale came from (or went back to, when returned)
+  returned: boolean;        // the car came back: its purchase cost is on the stock row, the loss stays here
 };
 export type Split = { purchase: number; air: number; courier: number; fee: number; gp: number };
 export type BooksReport = {
@@ -28,11 +31,14 @@ export type BooksReport = {
 const r2 = (n: number) => Math.round(n * 100) / 100;
 const PENDING_DAYS = 7;
 
-function line(o: Order, today: string, dupes: Set<string>): BookLine {
+function line(o: Order, today: string, dupes: Set<string>, stock: StockItem[]): BookLine {
+  const back = stock.find((s) => s.returnedFrom === o.orderId);
+  const from = stock.find((s) => s.orderId === o.orderId) || back;
+  const returned = !!back;
   const price = o.sellingPrice || 0, shipping = o.shippingCharge || 0, fee = o.tradeMeFee || 0;
   const purchase = getPurchaseCostNzd(o), air = o.airFreight || 0, courier = o.courierCost || 0;
   const missing: string[] = [];
-  if (!purchase) {
+  if (!purchase && !returned) {
     if (!o.purchaseCostCny) missing.push(COST_LABELS.purchase);
     if (!o.exchangeRate) missing.push(COST_LABELS.rate);
   }
@@ -43,34 +49,34 @@ function line(o: Order, today: string, dupes: Set<string>): BookLine {
 
   const flags: string[] = [];
   if (dupes.has(o.orderId)) flags.push(`订单号 ${o.orderId} 记了不止一次`);
-  if (!price) flags.push("售价是 0");
-  else if (price < 50 || price > 2000) flags.push(`售价 $${price} 不在 $50–$2000 之间`);
+  if (!price && !returned) flags.push("售价是 0");
+  else if (price && (price < 50 || price > 2000)) flags.push(`售价 $${price} 不在 $50–$2000 之间`);
   if (price && Math.round(price) !== price && shipping)
     flags.push(`售价 $${price} 带零头且另记了运费 $${shipping}：可能把运费算进了售价，运费算了两次`);
   if (price && fee > 0.15 * price) flags.push(`Trade Me 费用 $${fee} 超过售价的 15%`);
   if (shipping && courier && courier - shipping > 5)
     flags.push(`快递成本 $${courier} 比收的运费 $${shipping} 高 $${r2(courier - shipping)}`);
-  if (complete && gp < 0) flags.push(`毛利是负的（$${gp}）`);
+  if (complete && gp < 0 && !returned) flags.push(`毛利是负的（$${gp}）`);
   else if (complete && price && gp > 0.6 * price) flags.push(`毛利 $${gp} 超过售价的 60%，成本可能少记了`);
   if ((o.status === "Shipped" || o.status === "Completed") && !o.tracking) flags.push("已发货但没有物流单号");
-  if (o.status === "Pending" && o.dateSold && daysBetween(o.dateSold, today) > PENDING_DAYS)
+  if (o.status === "Pending" && !returned && o.dateSold && daysBetween(o.dateSold, today) > PENDING_DAYS)
     flags.push(`待处理已超过 ${PENDING_DAYS} 天：客人付款了吗？`);
 
   return { orderId: o.orderId, dateSold: o.dateSold, model: (o.model || "").trim(), status: o.status,
-    price, shipping, fee, purchase, air, courier, gp, complete, missing, flags };
+    price, shipping, fee, purchase, air, courier, gp, complete, missing, flags, stockId: from?.id || null, returned };
 }
 
 function daysBetween(a: string, b: string) {
   return (Date.parse(b.slice(0, 10)) - Date.parse(a.slice(0, 10))) / 86400000;
 }
 
-export function booksReport(orders: Order[], now = new Date()): BooksReport {
+export function booksReport(orders: Order[], now = new Date(), stock: StockItem[] = []): BooksReport {
   const today = now.toISOString().slice(0, 10);
   const seen = new Set<string>(), dupes = new Set<string>();
   for (const o of orders) (seen.has(o.orderId) ? dupes : seen).add(o.orderId);
   const lines = orders
     .filter((o) => o.status !== "Cancelled")
-    .map((o) => line(o, today, dupes))
+    .map((o) => line(o, today, dupes, stock))
     .sort((a, b) => (b.dateSold || "").localeCompare(a.dateSold || ""));
 
   const sum = (ls: BookLine[], f: (l: BookLine) => number) => r2(ls.reduce((s, l) => s + f(l), 0));
