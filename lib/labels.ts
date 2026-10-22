@@ -23,6 +23,7 @@ export const FIELD_LABELS = {
   tradeMeFee: "Trade Me 手续费",
   shippingCharge: "运费收入",
   courierCost: "快递成本",
+  deliveryMode: "空运门到门（无快递成本）",
   sellingPrice: "售价",
   grossProfit: "毛利",
   tracking: "物流单号",

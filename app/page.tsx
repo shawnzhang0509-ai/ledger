@@ -66,8 +66,8 @@ function HomeContent() {
       return matchesSearch && matchesStatus;
     })
     .sort((a, b) => {
-      let valA = a[sortBy as keyof Order];
-      let valB = b[sortBy as keyof Order];
+      let valA = a[sortBy as keyof Order] ?? "";
+      let valB = b[sortBy as keyof Order] ?? "";
       if (typeof valA === "string") valA = valA.toLowerCase();
       if (typeof valB === "string") valB = valB.toLowerCase();
       if (valA < valB) return sortDesc ? 1 : -1;
