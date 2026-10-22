@@ -54,7 +54,8 @@ export type RadarRow = { id: string; brand: string; ref: string; name: string; s
   release: string | null; why: string | null; supplier_cny: number | null; supplier_url: string | null;
   status: "proposed" | "kept" | "dropped"; status_why: string | null; status_by: string | null; by: string; at: string };
 
-const ts = (col: string) => `to_char(${col} AT TIME ZONE 'Pacific/Auckland', 'YYYY-MM-DD"T"HH24:MI')`;
+// ISO in UTC ("…Z"): sorts as text and every reader formats it for Auckland itself
+const ts = (col: string) => `to_char(${col} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')`;
 
 export async function loadMarketRows() {
   const q = await sql();
