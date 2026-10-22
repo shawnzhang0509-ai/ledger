@@ -21,7 +21,7 @@ export type Demand = { built: string; days: number; sales_days: number; families
 export type Other = { kind: "trademe" | "recorded"; id: string; source: string; total_nzd: number; shipping_known: boolean;
   checked: boolean; url: string; title: string | null };
 export type PriceLine = {
-  product: string; name: string; ref: string | null; ref_status: RefRow["status"]; colour: string | null;
+  product: string; name: string; brand: string | null; ref: string | null; ref_status: RefRow["status"]; colour: string | null;
   our_price: number | null; our_price_from: OurPrice["from"] | null; goods_cost_nzd: number | null;
   bayhobbies: { price: number; match: "ref" | "model"; title: string; url: string | null } | null;
   vs_bayhobbies_pct: number | null;        // > 0: we are dearer than Bay Hobbies
@@ -77,7 +77,7 @@ export function marketReport(input: {
         checked: o.status === "confirmed", url: o.url, title: null })),
     ].sort((a, b) => a.total_nzd - b.total_nzd);
     return {
-      product: p.id, name: p.name, ref: r?.ref ?? null, ref_status: r?.status ?? "unknown", colour: r?.colour ?? null,
+      product: p.id, name: p.name, brand: r?.brand ?? p.brand ?? null, ref: r?.ref ?? null, ref_status: r?.status ?? "unknown", colour: r?.colour ?? null,
       our_price: our?.price ?? null, our_price_from: our?.from ?? null,
       goods_cost_nzd: rmb && input.nzdPerCny ? Math.round(Number(rmb[1]) * input.nzdPerCny) : null,
       bayhobbies: bh ? { price: bh.price_nzd as number, match: bh.match === "ref" ? "ref" : "model", title: bh.title, url: bh.url } : null,
