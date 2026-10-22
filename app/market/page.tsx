@@ -8,6 +8,8 @@ import { RefreshCw } from "lucide-react";
 // The market, kept here: Bay Hobbies and other prices for the same car, maker refs (货号), demand per car family,
 // 新品雷达. People check and decide on this page; the bots do the same through /api/market/bot (`dt market …`) and
 // send this page's numbers as cards (`dt market card`).
+const nzTime = (iso: string | null) =>
+  iso ? new Date(iso).toLocaleString("zh-CN", { timeZone: "Pacific/Auckland", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false }) : "—";
 const nz = (n: number | null | undefined) => (n == null ? "—" : `$${Math.round(n).toLocaleString("en-NZ")}`);
 type Tab = "prices" | "refs" | "demand" | "radar";
 const TABS: [Tab, string][] = [["prices", "比价"], ["refs", "缺货号"], ["demand", "车系需求"], ["radar", "新品雷达"]];
@@ -79,7 +81,7 @@ function Prices({ s, run }: { s: MarketReport; run: Run }) {
   return (
     <>
       <p className="text-sm text-slate-500">
-        Bay Hobbies 看于 {s.bayhobbies_seen ?? "—"} · 同款 = 同一货号，同车型 = 同一款车别的颜色 · 差 = 我们比 Bay Hobbies 贵多少
+        Bay Hobbies 看于 {nzTime(s.bayhobbies_seen)} · 同款 = 同一货号，同车型 = 同一款车别的颜色 · 差 = 我们比 Bay Hobbies 贵多少
       </p>
       {s.unchecked_prices.length > 0 && (
         <Box title={`bot 找到、还没人核对的价格（${s.unchecked_prices.length}）`} tone="amber">
