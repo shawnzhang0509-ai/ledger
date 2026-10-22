@@ -146,6 +146,9 @@ function HomeContent() {
             <a href="/catalog" className="px-4 py-2 border border-slate-300 rounded-lg hover:bg-white transition text-sm font-medium text-slate-700">
               商品与价格
             </a>
+            <a href="/market" className="px-4 py-2 border border-slate-300 rounded-lg hover:bg-white transition text-sm font-medium text-slate-700">
+              市场
+            </a>
             <a href="/photos" className="px-4 py-2 border border-slate-300 rounded-lg hover:bg-white transition text-sm font-medium text-slate-700">
               上传照片
             </a>
