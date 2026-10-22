@@ -80,7 +80,7 @@ function Prices({ s }: { s: MarketSnapshot }) {
               <td className="py-2 pr-3">{p.name}</td>
               <td className="pr-3 whitespace-nowrap">{p.ref ?? "—"} <span className="text-xs text-slate-400">{REF_LABELS[p.ref_status]}</span></td>
               <td className="pr-3">{nz(p.our_price)}</td>
-              <td className="pr-3">{nz(p.lowest_elsewhere_nzd)}{p.lowest_without_shipping ? "*" : ""}</td>
+              <td className="pr-3">{nz(p.lowest_elsewhere_nzd)}{p.lowest_without_shipping ? "*" : ""}{p.lowest_unchecked ? "?" : ""}</td>
               <td className={`pr-3 font-semibold ${(p.ours_vs_lowest_pct ?? 0) > 30 ? "text-red-600" : "text-emerald-600"}`}>
                 {p.ours_vs_lowest_pct == null ? "—" : `${p.ours_vs_lowest_pct > 0 ? "+" : ""}${p.ours_vs_lowest_pct}%`}</td>
               <td className="pr-3">{nz(p.median_elsewhere_nzd)}</td>
@@ -92,7 +92,7 @@ function Prices({ s }: { s: MarketSnapshot }) {
                 ))}
                 {p.trademe_others.map((t) => (
                   <a key={t.listing_id} href={`https://www.trademe.co.nz/a/${t.listing_id}`} target="_blank" rel="noreferrer" className="block text-blue-600 hover:underline">
-                    Trade Me {nz(t.buy_now ?? t.start_price)}</a>
+                    Trade Me {nz(t.buy_now ?? t.start_price)}{t.match === "ref" ? "" : "?"}</a>
                 ))}
               </td>
             </tr>

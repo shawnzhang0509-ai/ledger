@@ -95,8 +95,7 @@ function view(s: MarketSnapshot, v: string) {
       cols: [{ head: "车", width: "flex" }, { head: "货号", width: 150 }, { head: "我们", width: 110 }, { head: "最低", width: 120 },
         { head: "差", width: 100 }, { head: "进货价", width: 110 }] as Col[],
       rows: rows.map((p) => {
-        const low = p.elsewhere.find((o) => o.total_nzd === p.lowest_elsewhere_nzd);
-        const mark = `${p.lowest_without_shipping ? "*" : ""}${low && low.status !== "confirmed" ? "?" : ""}`;
+        const mark = `${p.lowest_without_shipping ? "*" : ""}${p.lowest_unchecked ? "?" : ""}`;
         return [{ text: p.name }, { text: p.ref ? `${p.ref}${p.ref_status === "confirmed" ? "" : "?"}` : "—", color: p.ref_status === "confirmed" ? C.text : C.muted },
           { text: nz(p.our_price) }, { text: `${nz(p.lowest_elsewhere_nzd)}${mark}` },
           { text: p.ours_vs_lowest_pct == null ? "—" : `${p.ours_vs_lowest_pct > 0 ? "+" : ""}${p.ours_vs_lowest_pct}%`,
