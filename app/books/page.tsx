@@ -46,6 +46,7 @@ function BooksContent() {
           </div>
           <div className="flex flex-wrap items-center gap-4 text-sm">
             <a href="/" className="text-slate-500 hover:text-slate-800">订单</a>
+            <a href="/stock" className="text-slate-500 hover:text-slate-800">库存</a>
             <a href="/ops" className="text-slate-500 hover:text-slate-800">运营看板</a>
             <button onClick={load} className="flex items-center gap-1 text-slate-500 hover:text-slate-800"><RefreshCw className="w-4 h-4" />刷新</button>
           </div>
@@ -130,7 +131,10 @@ function Row({ l }: { l: BookLine }) {
   return (
     <tr className={`border-b last:border-0 ${l.flags.length ? "bg-amber-50" : ""}`}>
       <td className="py-2 pr-4 text-slate-500">{l.dateSold}</td>
-      <td className="pr-4 max-w-[280px] truncate" title={l.orderId}>{l.model || l.orderId}</td>
+      <td className="pr-4 max-w-[280px] truncate" title={l.orderId}>
+        {l.model || l.orderId}
+        {l.stockId && <a href={`/stock#${l.stockId}`} className="ml-2 text-xs text-blue-700 hover:underline">{l.returned ? "已退回库存" : "来自库存"}</a>}
+      </td>
       <td className="pr-4">{getStatusLabel(l.status)}</td>
       <td className="pr-4">{money(l.price)}</td>
       <td className="pr-4">{money(l.shipping)}</td>
