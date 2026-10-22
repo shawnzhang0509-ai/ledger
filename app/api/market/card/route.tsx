@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ImageResponse } from "next/og";
-import { getKvClient } from "@/lib/kv";
-import { MARKET_KEY, MarketSnapshot, RADAR_LABELS } from "@/lib/market";
+import { MarketReport, RADAR_LABELS, REF_LABELS } from "@/lib/market";
+import { loadMarketReport } from "@/lib/market-server";
 import { isAuthenticated, pushTokenMatches } from "@/lib/session";
 
 // The market snapshot as one fixed-layout PNG for WeChat (`dt market card --view prices|demand|radar` saves it, the
@@ -26,13 +26,14 @@ async function font(text: string, weight: number) {
 type Col = { head: string; width: number | "flex"; align?: "right" };
 type Cell = { text: string; color?: string; bold?: boolean };
 
-function view(s: MarketSnapshot, v: string) {
+function view(s: MarketReport, v: string) {
   if (v === "demand") {
-    const fams = s.demand.families;
-    const top = s.demand.products.slice(0, 8);
+    const d = s.demand ?? { built: s.built, days: 30, sales_days: 90, families: [], products: [] };
+    const fams = d.families;
+    const top = [...d.products].sort((a, b) => b.sold - a.sold || b.tm_watchers - a.tm_watchers || b.tm_views - a.tm_views).slice(0, 8);
     return {
       title: "DRIFTAE 车系需求",
-      sub: `截至 ${nzTime(s.built)} · 浏览/访客/咨询看近 ${s.demand.days} 天，成交看近 ${s.demand.sales_days} 天`,
+      sub: `截至 ${nzTime(d.built)} · 浏览/访客/咨询看近 ${d.days} 天，成交看近 ${d.sales_days} 天`,
       kpis: [
         ["卖得最好", fams[0]?.label ?? "—", C.green],
         ["收藏率最高", [...fams].sort((a, b) => (b.watch_rate_pct ?? -1) - (a.watch_rate_pct ?? -1))[0]?.label ?? "—", C.amber],
@@ -80,30 +81,46 @@ function view(s: MarketSnapshot, v: string) {
       footer: `* = 不含到新西兰的运费。预估毛利 = 同车系我们现价中位数 − (进货价 × 汇率 + $${s.freight_est_nzd} 运费估计)，不是账本数字。进不进货由人决定。`,
     };
   }
-  const rows = s.prices.filter((p) => p.lowest_elsewhere_nzd != null).slice(0, MAX_ROWS);
-  const dearer = s.prices.filter((p) => (p.ours_vs_lowest_pct ?? 0) > 30).length;
+  if (v === "refs") {
+    const rows = s.missing_refs.slice(0, MAX_ROWS);
+    return {
+      title: "DRIFTAE 缺货号",
+      sub: `截至 ${nzTime(s.built)} · 货号 = 盒子侧面标签上的厂家编号，比价靠它对同款`,
+      kpis: [
+        ["已确认", `${s.refs.confirmed} 台`, C.green],
+        ["待核对", `${s.refs.candidate} 台`, C.amber],
+        ["未知", `${s.refs.unknown} 台`, s.refs.unknown ? C.red : C.green],
+      ] as [string, string, string][],
+      tables: [{
+        name: "请拍盒子标签发给 bot（未知的优先）",
+        cols: [{ head: "车", width: "flex" }, { head: "网上找到的", width: 170 }, { head: "状态", width: 120 }] as Col[],
+        rows: rows.map((m) => [{ text: m.name }, { text: m.ref ?? "—", color: C.muted },
+          { text: REF_LABELS[m.status], color: m.status === "unknown" ? C.red : C.amber }] as Cell[]),
+      }],
+      footer: "拍到标签后跟 bot 说「这台的货号是 …」，或在账本「市场」页点确认。",
+    };
+  }
+  const rows = s.products.filter((p) => p.bayhobbies).slice(0, MAX_ROWS);
+  const dearer = s.products.filter((p) => (p.vs_bayhobbies_pct ?? 0) > 15).length;
   return {
-    title: "DRIFTAE 同款比价",
-    sub: `截至 ${nzTime(s.built)} · 同款 = 同一个厂家货号 · 别处价格看近 ${s.stale_after_days} 天`,
+    title: "DRIFTAE 比价 · Bay Hobbies",
+    sub: `截至 ${nzTime(s.built)}${s.bayhobbies_seen ? ` · Bay Hobbies 看于 ${nzTime(s.bayhobbies_seen)}` : ""} · 新西兰零售价，含 GST`,
     kpis: [
-      ["货号已确认", `${s.refs.confirmed} / ${s.refs.confirmed + s.refs.candidate + s.refs.unknown}`, s.refs.confirmed ? C.green : C.amber],
-      ["有别家价格", `${s.prices.filter((p) => p.lowest_elsewhere_nzd != null).length} 台`, C.text],
-      ["比最低价贵 30% 以上", `${dearer} 台`, dearer ? C.red : C.green],
+      ["Bay Hobbies 有的", `${rows.length} 台`, C.text],
+      ["比它贵 15% 以上", `${dearer} 台`, dearer ? C.red : C.green],
+      ["货号已确认", `${s.refs.confirmed} / ${s.products.length}`, s.refs.confirmed ? C.green : C.amber],
     ] as [string, string, string][],
     tables: [{
-      name: "我们 vs 别家最低（纽币）",
-      cols: [{ head: "车", width: "flex" }, { head: "货号", width: 150 }, { head: "我们", width: 110 }, { head: "最低", width: 120 },
+      name: "我们 vs Bay Hobbies（同款 = 同一货号；同车型 = 别的颜色）",
+      cols: [{ head: "车", width: "flex" }, { head: "我们", width: 110 }, { head: "Bay Hobbies", width: 160 }, { head: "", width: 100 },
         { head: "差", width: 100 }, { head: "进货价", width: 110 }] as Col[],
-      rows: rows.map((p) => {
-        const mark = `${p.lowest_without_shipping ? "*" : ""}${p.lowest_unchecked ? "?" : ""}`;
-        return [{ text: p.name }, { text: p.ref ? `${p.ref}${p.ref_status === "confirmed" ? "" : "?"}` : "—", color: p.ref_status === "confirmed" ? C.text : C.muted },
-          { text: nz(p.our_price) }, { text: `${nz(p.lowest_elsewhere_nzd)}${mark}` },
-          { text: p.ours_vs_lowest_pct == null ? "—" : `${p.ours_vs_lowest_pct > 0 ? "+" : ""}${p.ours_vs_lowest_pct}%`,
-            color: (p.ours_vs_lowest_pct ?? 0) > 30 ? C.red : C.green, bold: true },
-          { text: nz(p.goods_cost_nzd), color: C.muted }] as Cell[];
-      }),
+      rows: rows.map((p) => [{ text: p.name }, { text: nz(p.our_price) }, { text: nz(p.bayhobbies?.price) },
+        { text: p.bayhobbies?.match === "ref" ? "同款" : "同车型", color: p.bayhobbies?.match === "ref" ? C.green : C.muted },
+        { text: p.vs_bayhobbies_pct == null ? "—" : `${p.vs_bayhobbies_pct > 0 ? "+" : ""}${p.vs_bayhobbies_pct}%`,
+          color: (p.vs_bayhobbies_pct ?? 0) > 15 ? C.red : C.green, bold: true },
+        { text: nz(p.goods_cost_nzd), color: C.muted }] as Cell[]),
     }],
-    footer: "* = 不含到新西兰的运费 · ? = 还没人核对。进货价 = 供应商价 × 汇率，不含运费。改价走改价码。",
+    footer: "Bay Hobbies 不卖 Sun Star，拉力车没有参考。进货价 = 供应商价 × 汇率，不含运费。改价走改价码。",
   };
 }
 
@@ -111,8 +128,7 @@ export async function GET(request: NextRequest) {
   if (!isAuthenticated(request) && !pushTokenMatches(request.headers.get("authorization"))) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  const s = (await getKvClient().get(MARKET_KEY)) as MarketSnapshot | null;
-  if (!s) return NextResponse.json({ error: "No market snapshot yet: dt market push" }, { status: 404 });
+  const s = await loadMarketReport();
   const v = view(s, request.nextUrl.searchParams.get("view") ?? "prices");
   const box = { display: "flex", flexDirection: "column" as const, background: C.card, borderRadius: 16, padding: "18px 26px" };
   const tableH = (rows: number) => 50 + 44 + Math.max(1, rows) * ROW + 20;

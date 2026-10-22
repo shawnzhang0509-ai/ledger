@@ -1,36 +1,38 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getKvClient } from "@/lib/kv";
-import { MARKET_KEY } from "@/lib/market";
+import { DEMAND_KEY } from "@/lib/market";
+import { loadMarketReport } from "@/lib/market-server";
 import { pushTokenMatches, sessionRole } from "@/lib/session";
 
-const MAX_BYTES = 512 * 1024;
+export const dynamic = "force-dynamic";
+const MAX_BYTES = 256 * 1024;
 
-// The /market page reads the latest snapshot. Prices, demand and radar are computed in driftae-ops (`dt market push`),
-// so the bots' answers, the card and this page always show the same numbers.
+// GET: the market report (/market page, `dt market report`). Computed here from the market records, so the page,
+// the card and the bots read the same numbers.
 export async function GET(request: NextRequest) {
-  if (!sessionRole(request)) {
+  if (!sessionRole(request) && !pushTokenMatches(request.headers.get("authorization"))) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  return NextResponse.json({ snapshot: (await getKvClient().get(MARKET_KEY)) ?? null });
+  return NextResponse.json(await loadMarketReport());
 }
 
+// POST: demand per car family, which the driftae-ops server computes from what only it has (Trade Me daily views,
+// sales matched to products) and pushes with `dt market push` every 30 min.
 export async function POST(request: NextRequest) {
   if (!pushTokenMatches(request.headers.get("authorization"))) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const text = await request.text();
-  if (text.length > MAX_BYTES) {
-    return NextResponse.json({ error: "Too large" }, { status: 413 });
-  }
-  let body: { built?: string; prices?: unknown[]; demand?: unknown; radar?: unknown[] };
+  if (text.length > MAX_BYTES) return NextResponse.json({ error: "Too large" }, { status: 413 });
+  let body: { built?: string; families?: unknown[]; products?: unknown[] };
   try {
     body = JSON.parse(text);
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
-  if (!body?.built || !Array.isArray(body.prices) || !body.demand || !Array.isArray(body.radar)) {
-    return NextResponse.json({ error: "Missing built/prices/demand/radar" }, { status: 400 });
+  if (!body?.built || !Array.isArray(body.families) || !Array.isArray(body.products)) {
+    return NextResponse.json({ error: "Need built, families, products" }, { status: 400 });
   }
-  await getKvClient().set(MARKET_KEY, body);
+  await getKvClient().set(DEMAND_KEY, body);
   return NextResponse.json({ success: true });
 }
