@@ -14,6 +14,7 @@ export type MarketPriceRow = {
   elsewhere: { id: string; source: string; total_nzd: number; shipping_known: boolean; match: string; status: string; at: string; url: string }[];
   lowest_elsewhere_nzd: number | null;
   lowest_without_shipping: boolean;
+  lowest_unchecked?: boolean; // the lowest price is a bot's find (or a Trade Me model-name match) nobody has checked yet
   median_elsewhere_nzd: number | null;
   ours_vs_lowest_pct: number | null;
 };
