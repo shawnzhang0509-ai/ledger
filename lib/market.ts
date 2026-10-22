@@ -60,7 +60,7 @@ export function marketReport(input: {
   const cutoff = new Date(now.getTime() - STALE_DAYS * 86400000).toISOString().slice(0, 16);
   const names = new Map(input.products.map((p) => [p.id, p.name]));
 
-  const products: PriceLine[] = input.products.map((p) => {
+  const products: PriceLine[] = input.products.map((p): PriceLine => {
     const r = refOf.get(p.id);
     const our = input.ours[p.id] ?? null;
     let image = p.image ?? "";
@@ -69,11 +69,11 @@ export function marketReport(input: {
     const bh = input.seen.filter((s) => s.source === "bayhobbies" && s.product_id === p.id && s.price_nzd != null)
       .sort((a, b) => Number(b.match === "ref") - Number(a.match === "ref") || (a.price_nzd ?? 0) - (b.price_nzd ?? 0))[0];
     const others: Other[] = [
-      ...input.seen.filter((s) => s.source === "trademe" && s.product_id === p.id && s.price_nzd != null).map((s) => ({
-        kind: "trademe" as const, id: s.key, source: "Trade Me", total_nzd: s.price_nzd as number, shipping_known: true,
+      ...input.seen.filter((s) => s.source === "trademe" && s.product_id === p.id && s.price_nzd != null).map((s): Other => ({
+        kind: "trademe", id: s.key, source: "Trade Me", total_nzd: s.price_nzd as number, shipping_known: true,
         checked: s.match === "ref", url: s.url ?? `https://www.trademe.co.nz/a/${s.key}`, title: s.title })),
-      ...input.prices.filter((o) => o.product_id === p.id && o.status !== "rejected" && o.at >= cutoff).map((o) => ({
-        kind: "recorded" as const, id: o.id, source: o.source, total_nzd: o.total_nzd, shipping_known: o.shipping_known,
+      ...input.prices.filter((o) => o.product_id === p.id && o.status !== "rejected" && o.at >= cutoff).map((o): Other => ({
+        kind: "recorded", id: o.id, source: o.source, total_nzd: o.total_nzd, shipping_known: o.shipping_known,
         checked: o.status === "confirmed", url: o.url, title: null })),
     ].sort((a, b) => a.total_nzd - b.total_nzd);
     return {
@@ -94,7 +94,7 @@ export function marketReport(input: {
     const f = famOf.get(id);
     if (f) famPrices.set(f, [...(famPrices.get(f) ?? []), o.price]);
   }
-  const radar: RadarLine[] = input.radar.map((c) => {
+  const radar: RadarLine[] = input.radar.map((c): RadarLine => {
     const f = fam.get(c.family);
     const nz = median(famPrices.get(c.family) ?? []);
     const landed = c.supplier_cny != null && input.nzdPerCny ? Math.round(c.supplier_cny * input.nzdPerCny + FREIGHT_EST_NZD) : null;
@@ -110,7 +110,7 @@ export function marketReport(input: {
   return {
     built: now.toISOString(), bayhobbies_seen: latest("bayhobbies"), trademe_seen: latest("trademe"),
     refs: counts, products,
-    missing_refs: products.filter((p) => p.ref_status !== "confirmed").map((p) => {
+    missing_refs: products.filter((p) => p.ref_status !== "confirmed").map((p): MarketReport["missing_refs"][number] => {
       const r = refOf.get(p.product);
       return { product: p.product, name: p.name, status: p.ref_status, ref: p.ref, note: r?.note ?? null, sources: r?.sources ?? [] };
     }).sort((a, b) => Number(a.status === "candidate") - Number(b.status === "candidate")),

@@ -27,7 +27,7 @@ export async function POST(request: NextRequest) {
       if (!ID.test(String(b.product_id ?? "")) || !status) return bad("Need product_id and status confirmed|candidate|unknown");
       if (status !== "unknown" && !(ref && /^[A-Za-z0-9-]{3,20}$/.test(ref))) return bad("A ref is 3-20 letters/digits");
       await addRef({ product_id: b.product_id, brand: s(b.brand, 60), ref: status === "unknown" ? null : ref, colour: s(b.colour, 60),
-        status, confidence: s(b.confidence, 20), sources: Array.isArray(b.sources) ? b.sources.map((x: unknown) => s(x, 500)).filter(Boolean) : [],
+        status, confidence: s(b.confidence, 20), sources: Array.isArray(b.sources) ? b.sources.map((x: unknown) => s(x, 500)).filter((x: string | null): x is string => !!x) : [],
         note: s(b.note, 500), by });
       return NextResponse.json({ success: true });
     }
