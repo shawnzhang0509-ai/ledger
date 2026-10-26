@@ -234,6 +234,23 @@ export function OrderForm({ order, onSubmit, onClose }: OrderFormProps) {
             <textarea value={form.notes} onChange={(e) => handleChange("notes", e.target.value)} rows={2} className={inputClass} />
           </div>
 
+          {order?.history?.length ? (
+            <div className="text-sm text-slate-600">
+              <div className="font-medium text-slate-700 mb-1">改数历史（回码更正）</div>
+              <ul className="space-y-1">
+                {order.history.map((h, i) => (
+                  <li key={i}>
+                    {h.at.slice(0, 10)} {h.by}：
+                    {Object.entries(h.changes)
+                      .map(([k, [a, b]]) => `${FIELD_LABELS[k as keyof typeof FIELD_LABELS] ?? k} ${a} → ${b}`)
+                      .join("，")}
+                    （{h.reason}）
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+
           <div className="flex gap-3 pt-2">
             <button type="submit" className="flex-1 bg-slate-800 text-white py-2.5 rounded-lg hover:bg-slate-700 transition font-medium">
               {order ? "保存修改" : "创建订单"}

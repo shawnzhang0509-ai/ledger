@@ -79,6 +79,7 @@ export async function PUT(request: NextRequest) {
       grossProfit: calculateGrossProfit(normalized as Order),
       updatedAt: new Date().toISOString(),
       createdAt: orders[index].createdAt,
+      history: orders[index].history,   // the form doesn't carry it; a page save must not drop the corrections' trail
     };
     orders[index] = updatedOrder;
     await kv.set(ORDERS_KEY, orders);
