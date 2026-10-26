@@ -215,11 +215,12 @@ export function OrderForm({ order, onSubmit, onClose }: OrderFormProps) {
           </div>
 
           <label className="flex items-center gap-2 text-sm text-slate-700">
-            <input type="checkbox" checked={form.deliveryMode === "air-door"}
-              onChange={(e) => setForm((prev) => ({ ...prev,
-                // unticking a row that was never set leaves it unset, so a bot may still fill it in
-                deliveryMode: e.target.checked ? "air-door" : order?.deliveryMode ? "courier" : undefined }))} />
-            {FIELD_LABELS.deliveryMode}：空运直接送到客人家，快递成本 0 不算漏填
+            {/* not set + air freight + no courier cost counts as door to door (lib/books.ts), so it shows ticked;
+                unticking marks it "courier" (a 0 courier cost is then a blank to fill) */}
+            <input type="checkbox"
+              checked={form.deliveryMode === "air-door" || (form.deliveryMode !== "courier" && form.airFreight > 0 && !form.courierCost)}
+              onChange={(e) => setForm((prev) => ({ ...prev, deliveryMode: e.target.checked ? "air-door" : "courier" }))} />
+            {FIELD_LABELS.deliveryMode}：空运直接送到客人家，快递成本 0 不算漏填（有空运费、没填快递费的单默认就是）
           </label>
 
           <div className="bg-slate-50 p-4 rounded-xl flex items-center justify-between border border-slate-200">
