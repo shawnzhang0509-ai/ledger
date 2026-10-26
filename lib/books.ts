@@ -44,7 +44,10 @@ function line(o: Order, today: string, dupes: Set<string>, stock: StockItem[]): 
     if (!o.exchangeRate) missing.push(COST_LABELS.rate);
   }
   if (!air) missing.push(COST_LABELS.air);
-  const airDoor = o.deliveryMode === "air-door";
+  // Our air freight goes door to door (owner 2026-10-21: "这些空运全是直接 door to door"), so a sale with air freight and no
+  // courier cost is door to door unless someone marked it "courier". Only then, or with no air freight (sold from NZ
+  // stock), is a 0 courier cost a blank to fill.
+  const airDoor = o.deliveryMode === "air-door" || (o.deliveryMode !== "courier" && air > 0 && !courier);
   if (!courier && !airDoor) missing.push(COST_LABELS.courier);   // door-to-door air: no courier cost, not a blank
   const complete = missing.length === 0;
   const gp = r2(price + shipping - purchase - air - fee - courier);
