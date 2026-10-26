@@ -24,8 +24,18 @@ export interface Order {
   // "air-door": air freight is door to door, there is no separate courier cost (owner 2026-10-21).
   // Not set = "courier" (old rows unchanged): a 0 courier cost then means "not filled in yet".
   deliveryMode?: DeliveryMode;
+  // Corrections approved with a WeChat code (/api/orders/correct): old → new per field, kept when the page saves.
+  history?: OrderChange[];
   createdAt: string;
   updatedAt: string;
+}
+
+export interface OrderChange {
+  at: string;
+  by: string;
+  reason: string;
+  changes: Record<string, [number, number]>;
+  derived?: string[];   // recomputed, not asked for (purchaseCost from ¥ ÷ rate)
 }
 
 /** 根据人民币采购价和汇率（1 NZD = X CNY）计算纽币采购成本 */
