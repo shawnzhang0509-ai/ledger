@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { AuthGate } from "@/components/auth-gate";
 import { RefreshCw } from "lucide-react";
+import { type AdRace, raceLabel, raceState } from "@/lib/ad-race";
 
 // Numbers pushed by the driftae-ops server (`dt dashboard --push`): no customer names, no message text.
 // What each metric means, its owner role, target and rule come from org/metrics.json in driftae-ops.
@@ -26,6 +27,7 @@ type Snapshot = {
     ad: string; window: string; status: string; daily_budget: number; tag_theme?: string; tag_creative?: string;
     spend: number; impressions: number; ctr_pct: number | null; conversations: number; cost_per_conversation: number | null;
   }[];
+  ad_race?: AdRace;
   orders_monthly: { month: string; orders: number; revenue: number; gross_profit: number }[];
   orders_daily: { day: string; orders: number; revenue: number }[];
   trademe: { listing_id: number; title: string; price: number; views: number; watchers: number; end: string | null; synced: string }[];
@@ -226,6 +228,26 @@ function OpsContent() {
             ))}
           </Table>
         </Section>
+
+        {snap.ad_race && snap.ad_race.ads.length > 0 && (
+          <Section title={`广告赛马（每条只看头 ${snap.ad_race.days} 天）`}
+            note={`不同周投的广告按同样天数比。要跑满 ${snap.ad_race.days} 天、展示过 1,000 次才算数；每个对话越便宜越好。绿色 = 目前领先。微信里问 bot 要「赛马卡」。`}>
+            <Table head={["广告", "进度", "开始", "花费", "展示", "点击率", "对话", "每对话"]}>
+              {snap.ad_race.ads.map((r) => (
+                <tr key={r.ad} className={r.ad === snap.ad_race?.leader ? "text-emerald-700 font-medium" : ""}>
+                  <Td>{raceLabel(r)}</Td>
+                  <Td>{raceState(r, snap.ad_race!.days)}</Td>
+                  <Td>{r.started.slice(5)}</Td>
+                  <Td num>{money(r.spend)}</Td>
+                  <Td num>{r.impressions.toLocaleString()}</Td>
+                  <Td num>{r.ctr_pct === null ? "—" : `${r.ctr_pct}%`}</Td>
+                  <Td num>{r.conversations}</Td>
+                  <Td num>{r.cost_per_conversation === null ? "—" : money(r.cost_per_conversation)}</Td>
+                </tr>
+              ))}
+            </Table>
+          </Section>
+        )}
 
         <Section title="Trade Me" note={`按关注数排序。有关注没成交 = 犹豫，考虑报价；浏览少 = 标题或图片要改。同步于 ${when(tm[0]?.synced)}`}>
           {snap.trademe_ended_early && snap.trademe_ended_early.length > 0 && (
