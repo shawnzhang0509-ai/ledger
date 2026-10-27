@@ -42,17 +42,41 @@ export function passwordRole(input: unknown): Role | null {
 }
 
 /** A signed, expiring token naming the role. The cookie never holds a password. */
-export function createSessionToken(role: Role): string | null {
+export function createSessionToken(role: Role, exp = Math.floor(Date.now() / 1000) + SESSION_MAX_AGE): string | null {
   const key = signingKey();
   if (!key) return null;
-  const payload = `${Math.floor(Date.now() / 1000) + SESSION_MAX_AGE}:${role}`;
+  const payload = `${exp}:${role}`;
   return `${payload}.${sign(payload, key)}`;
 }
 
-export function sessionRole(request: NextRequest): Role | null {
-  const key = signingKey();
-  const token = request.cookies.get(SESSION_COOKIE)?.value;
-  if (!key || !token) return null;
+// Links with a view pass (owner 2026-10-27: "这个链接有没有可能做成直接进的"): the bots' card links carry
+// `exp:viewer.<mac>`, signed by the driftae-ops server with a key derived from METRICS_PUSH_TOKEN (it already holds it),
+// at most LINK_MAX_DAYS ahead. Opening one sets a separate viewer cookie: never admin, never replaces a password login.
+export const LINK_COOKIE = "view_link";
+export const LINK_MAX_DAYS = 8;
+
+function linkKey(): Buffer | null {
+  const token = process.env.METRICS_PUSH_TOKEN;
+  return token ? sha256(`view-link:${token}`) : null;
+}
+
+/** The pass's expiry (unix seconds) when it is genuine, unexpired and for a viewer; otherwise null. */
+export function viewLinkExpiry(t: string | null): number | null {
+  const key = linkKey();
+  if (!key || !t) return null;
+  const [payload, mac] = t.split(".");
+  if (!payload || !mac) return null;
+  const expected = Buffer.from(sign(payload, key));
+  const given = Buffer.from(mac);
+  if (expected.length !== given.length || !timingSafeEqual(expected, given)) return null;
+  const [exp, role] = payload.split(":");
+  const now = Date.now() / 1000;
+  if (role !== "viewer" || !(Number(exp) > now) || Number(exp) > now + LINK_MAX_DAYS * 86400) return null;
+  return Number(exp);
+}
+
+function cookieRole(key: Buffer, token: string | undefined): Role | null {
+  if (!token) return null;
   const [payload, mac] = token.split(".");
   if (!payload || !mac) return null;
   const expected = Buffer.from(sign(payload, key));
@@ -61,6 +85,13 @@ export function sessionRole(request: NextRequest): Role | null {
   const [exp, role] = payload.split(":");
   if (!(Number(exp) > Date.now() / 1000)) return null;
   return role === "admin" || role === "viewer" ? role : null;
+}
+
+export function sessionRole(request: NextRequest): Role | null {
+  const key = signingKey();
+  if (!key) return null;
+  return cookieRole(key, request.cookies.get(SESSION_COOKIE)?.value)
+    ?? (cookieRole(key, request.cookies.get(LINK_COOKIE)?.value) === "viewer" ? "viewer" : null);
 }
 
 /** Orders (customer names, costs) are admin-only. */

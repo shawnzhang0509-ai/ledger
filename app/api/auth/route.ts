@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
+  LINK_COOKIE,
   SESSION_COOKIE,
   SESSION_MAX_AGE,
   createSessionToken,
@@ -53,6 +54,7 @@ export async function POST(request: NextRequest) {
 export async function DELETE() {
   const response = NextResponse.json({ success: true });
   response.cookies.delete(SESSION_COOKIE);
+  response.cookies.delete(LINK_COOKIE);
   response.cookies.delete("auth_token");
   return response;
 }
