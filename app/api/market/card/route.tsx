@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { ImageResponse } from "next/og";
 import { MarketReport, RADAR_LABELS, REF_LABELS } from "@/lib/market";
 import { loadMarketReport } from "@/lib/market-server";
+import { loadBooks } from "@/lib/books-server";
+import type { BooksReport } from "@/lib/books";
 import { isAuthenticated, pushTokenMatches } from "@/lib/session";
 
 // The market snapshot as one fixed-layout PNG for WeChat (`dt market card --view prices|demand|radar` saves it, the
@@ -26,7 +28,39 @@ async function font(text: string, weight: number) {
 type Col = { head: string; width: number | "flex"; align?: "right" };
 type Cell = { text: string; color?: string; bold?: boolean };
 
-function view(s: MarketReport, v: string) {
+function view(s: MarketReport, v: string, books: BooksReport | null = null) {
+  if (v === "why") {
+    // 价格怎么来的 (Stella 2026-10-27: "我们比海外零售高70%的合理性是？"): where each dollar of our real sales went (the
+    // books, complete sales only), then per car our price against the cheapest price recorded elsewhere and a cost guess.
+    const sp = books?.totals.split;
+    const lines = s.products.map((p) => {
+      const away = p.others.filter((o) => o.kind === "recorded").sort((a, b) => a.total_nzd - b.total_nzd)[0];
+      const cost = p.goods_cost_nzd != null ? p.goods_cost_nzd + s.freight_est_nzd : null;
+      return { p, away, cost, pct: p.our_price && away ? Math.round(((p.our_price - away.total_nzd) / away.total_nzd) * 100) : null };
+    }).filter((x) => x.p.our_price && x.away).sort((a, b) => (b.pct ?? 0) - (a.pct ?? 0)).slice(0, MAX_ROWS);
+    return {
+      title: "DRIFTAE 我们的价格怎么来的",
+      sub: `账本里已算清的 ${books?.totals.complete ?? 0} 单：每收 $100，钱去了哪里`,
+      kpis: (sp ? [
+        ["进货", `$${Math.round(sp.purchase)}`, C.text],
+        ["空运 + 快递", `$${Math.round(sp.air + sp.courier)}`, C.text],
+        ["Trade Me 费", `$${Math.round(sp.fee)}`, C.text],
+        ["毛利", `$${Math.round(sp.gp)}`, C.green],
+      ] : [["已算清的单", "0", C.amber]]) as [string, string, string][],
+      tables: [{
+        name: "每台车：我们 vs 别处最便宜（记录过的价格）",
+        cols: [{ head: "车", width: "flex" }, { head: "我们", width: 100 }, { head: "别处", width: 110 }, { head: "高", width: 90 },
+          { head: "进货+运费(估)", width: 160 }, { head: "毛利(估)", width: 120 }] as Col[],
+        rows: lines.map(({ p, away, cost, pct }) => [{ text: p.name }, { text: nz(p.our_price) },
+          { text: `${nz(away?.total_nzd)}${away && !away.shipping_known ? "*" : ""}` },
+          { text: pct == null ? "—" : `${pct > 0 ? "+" : ""}${pct}%`, color: (pct ?? 0) > 30 ? C.amber : C.green, bold: true },
+          { text: nz(cost), color: C.muted },
+          { text: cost == null || !p.our_price ? "—" : nz(p.our_price - cost), color: cost != null && p.our_price && p.our_price - cost > 0 ? C.green : C.red }] as Cell[]),
+      }],
+      footer: `上面四格是我们真实成交的平均（账本），下面是估算：进货价 × 汇率 + $${s.freight_est_nzd} 运费估计，不含 Trade Me 费。` +
+        "别处 = 有人记录过的同款价格（* = 不含到新西兰的运费，比的时候要加上）。我们每台都单独空运到客人家门口，这笔钱在上面「空运 + 快递」里。",
+    };
+  }
   if (v === "demand") {
     const d = s.demand ?? { built: s.built, days: 30, sales_days: 90, families: [], products: [] };
     const fams = d.families;
@@ -128,8 +162,9 @@ export async function GET(request: NextRequest) {
   if (!isAuthenticated(request) && !pushTokenMatches(request.headers.get("authorization"))) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  const s = await loadMarketReport();
-  const v = view(s, request.nextUrl.searchParams.get("view") ?? "prices");
+  const which = request.nextUrl.searchParams.get("view") ?? "prices";
+  const [s, books] = await Promise.all([loadMarketReport(), which === "why" ? loadBooks() : Promise.resolve(null)]);
+  const v = view(s, which, books);
   const box = { display: "flex", flexDirection: "column" as const, background: C.card, borderRadius: 16, padding: "18px 26px" };
   const tableH = (rows: number) => 50 + 44 + Math.max(1, rows) * ROW + 20;
   const H = PAD + 110 + 140 + v.tables.reduce((h, t) => h + 24 + tableH(t.rows.length), 0) + 100 + PAD;
