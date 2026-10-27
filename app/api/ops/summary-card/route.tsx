@@ -104,21 +104,23 @@ export async function GET(request: NextRequest) {
   const verdict = todo.length ? `要人处理：${todo.join(" · ")}` : "今天没有等人处理的事";
 
   // 常用口令（from org/capabilities.json via the snapshot, so it never drifts from what the bots do）
+  // every phrase the bots answer (帮我查) and every errand with its approval word (帮我办), owner 2026-10-28: all of them
   const items = s.capabilities?.items ?? [];
-  const asks = items.filter((i) => i.category === "ask" && i.say).map((i) => (i.say as string).split(" / ")[0]).slice(0, 12);
-  const verbs = Array.from(new Map(items.filter((i) => i.code).map((i) => [i.code as string, i.name])).entries());
+  const first = (say: string) => say.split(" / ")[0];
+  const asks = items.filter((i) => i.category === "ask" && i.say).map((i) => first(i.say as string));
+  const dos = items.filter((i) => i.category === "do" && i.say).map((i) => ({ say: first(i.say as string), code: i.code ?? null }));
 
   const blocks = [sales, ads, trademe, stockB, people];
   const blockH = (b: Block) => 56 + (b.kpis.length ? 112 : 0) + Math.max(b.lines.length || (b.empty ? 1 : 0), 0) * 40 + 36;
-  const askRows = Math.ceil(asks.length / 2), verbRows = Math.ceil(verbs.length / 2);
-  const H = PAD + 100 + 90 + 20 + blocks.reduce((h, b) => h + blockH(b) + 20, 0) + 56 + askRows * 40 + 60 + verbRows * 40 + 60 + 50 + PAD;
+  const askRows = Math.ceil(asks.length / 2);
+  const H = PAD + 100 + 90 + 20 + blocks.reduce((h, b) => h + blockH(b) + 20, 0) + 56 + askRows * 40 + 60 + dos.length * 40 + 60 + 50 + PAD;
 
   const title = "DRIFTAE 运营总览";
   const sub = `截至 ${nzTime(now.toISOString())}` + (s.built ? ` · 广告/Trade Me 数据 ${nzTime(s.built)}` : "");
   const footer = "数字和账本网页一样：销售看「账本」，库存看「库存」，广告和 Trade Me 看「运营」。";
-  const allText = [title, sub, verdict, footer, "常用问法（直接跟 bot 说）", "审批口令（卡上会写，回「口令 + 6 位码」）", "回",
+  const allText = [title, sub, verdict, footer, "帮我查（直接跟 bot 说，只看不改）", "帮我办（往外发、花钱、改数的先出卡，回「口令 + 6 位码」）", "回", "码", "直接办",
     ...blocks.flatMap((b) => [b.title, b.empty ?? "", ...b.kpis.flatMap((k) => [k[0], k[1]]), ...b.lines.flatMap((l) => [l[0], l[1] ?? ""])]),
-    ...asks, ...verbs.flat(), "0123456789$.,%−—·（）/：…「」+ "].join("");
+    ...asks, ...dos.flatMap((d) => [d.say, d.code ?? ""]), "0123456789$.,%−—·（）/：…「」+ "].join("");
   const [regular, bold] = await Promise.all([font(allText, 400), font(allText, 700)]);
   const box = { display: "flex", flexDirection: "column" as const, background: C.card, borderRadius: 16, padding: "18px 24px" };
 
@@ -153,19 +155,19 @@ export async function GET(request: NextRequest) {
           </div>
         ))}
         <div style={{ ...box, marginTop: 20 }}>
-          <div style={{ fontSize: 26, fontWeight: 700, height: 44 }}>常用问法（直接跟 bot 说）</div>
+          <div style={{ fontSize: 26, fontWeight: 700, height: 44 }}>帮我查（直接跟 bot 说，只看不改）</div>
           <div style={{ display: "flex", flexWrap: "wrap" }}>
-            {asks.map((a) => <div key={a} style={{ width: "50%", height: 40, fontSize: 21, color: C.text, display: "flex", alignItems: "center", overflow: "hidden", whiteSpace: "nowrap" }}>{`「${cut(a, 18)}」`}</div>)}
+            {asks.map((a) => <div key={a} style={{ width: "50%", height: 40, fontSize: 21, color: C.text, display: "flex", alignItems: "center", overflow: "hidden", whiteSpace: "nowrap" }}>{`「${cut(a, 19)}」`}</div>)}
           </div>
-          <div style={{ fontSize: 26, fontWeight: 700, height: 44, marginTop: 16 }}>审批口令（卡上会写，回「口令 + 6 位码」）</div>
-          <div style={{ display: "flex", flexWrap: "wrap" }}>
-            {verbs.map(([v, name]) => (
-              <div key={v} style={{ width: "50%", height: 40, fontSize: 21, display: "flex", alignItems: "center", overflow: "hidden", whiteSpace: "nowrap" }}>
-                <div style={{ color: C.amber, fontWeight: 700, width: 100 }}>{v}</div>
-                <div style={{ color: C.muted }}>{cut(name, 14)}</div>
+          <div style={{ fontSize: 26, fontWeight: 700, height: 44, marginTop: 16 }}>帮我办（往外发、花钱、改数的先出卡，回「口令 + 6 位码」）</div>
+          {dos.map((d) => (
+            <div key={d.say} style={{ display: "flex", height: 40, alignItems: "center", fontSize: 21, borderTop: `1px solid ${C.line}` }}>
+              <div style={{ flex: 1, overflow: "hidden", whiteSpace: "nowrap" }}>{`「${cut(d.say, 34)}」`}</div>
+              <div style={{ width: 170, color: d.code ? C.amber : C.muted, fontWeight: d.code ? 700 : 400, display: "flex", justifyContent: "flex-end" }}>
+                {d.code ? `回「${d.code} 码」` : "直接办"}
               </div>
-            ))}
-          </div>
+            </div>
+          ))}
         </div>
         <div style={{ fontSize: 18, color: C.muted, marginTop: 20, lineHeight: 1.5 }}>{footer}</div>
       </div>
