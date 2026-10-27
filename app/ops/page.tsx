@@ -229,7 +229,7 @@ function OpsContent() {
           </Table>
         </Section>
 
-        {snap.ad_race && snap.ad_race.ads.length > 0 && (
+        {snap.ad_race?.ads?.length ? (
           <Section title={`广告赛马（每条只看头 ${snap.ad_race.days} 天）`}
             note={`不同周投的广告按同样天数比。要跑满 ${snap.ad_race.days} 天、展示过 1,000 次才算数；每个对话越便宜越好。绿色 = 目前领先。微信里问 bot 要「赛马卡」。`}>
             <Table head={["广告", "进度", "开始", "花费", "展示", "点击率", "对话", "每对话"]}>
@@ -247,7 +247,7 @@ function OpsContent() {
               ))}
             </Table>
           </Section>
-        )}
+        ) : null}
 
         <Section title="Trade Me" note={`按关注数排序。有关注没成交 = 犹豫，考虑报价；浏览少 = 标题或图片要改。同步于 ${when(tm[0]?.synced)}`}>
           {snap.trademe_ended_early && snap.trademe_ended_early.length > 0 && (

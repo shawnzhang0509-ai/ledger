@@ -27,7 +27,7 @@ export async function GET(request: NextRequest) {
   }
   const snap = (await getKvClient().get("ops:metrics")) as { ad_race?: AdRace } | null;
   const race = snap?.ad_race;
-  if (!race) return NextResponse.json({ error: "no ad_race in the ops snapshot yet" }, { status: 404 });
+  if (!race?.ads) return NextResponse.json({ error: "no ad_race in the ops snapshot yet" }, { status: 404 });
   const rows = race.ads.slice(0, MAX_ROWS);
   const lead = race.ads.find((r) => r.ad === race.leader);
   const title = "DRIFTAE 广告赛马";
