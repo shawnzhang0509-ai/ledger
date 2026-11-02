@@ -4,6 +4,7 @@ import { getKvClient } from "@/lib/kv";
 import { loadBooks, loadStockReport } from "@/lib/books-server";
 import { nzDate } from "@/lib/stock";
 import { loadMarketReport } from "@/lib/market-server";
+import { RADAR_LABELS } from "@/lib/market";
 import type { AdRace } from "@/lib/ad-race";
 import { isAuthenticated, pushTokenMatches } from "@/lib/session";
 
@@ -20,18 +21,23 @@ type Snap = {
   ad_race?: AdRace;
   inbox?: { status: string }[];
   tm_summary?: {
-    live: number; new_views: number; new_watchers: number; top_watched: Brief[];
+    live: number; new_views: number; new_watchers: number; watch_rate_pct?: number | null; top_watched: Brief[];
     new: { title: string; days_live: number; views: number; watchers: number }[];
     slow: { title: string; days_on_trademe: number; views: number }[]; ending_7d_no_watchers: number;
     // from `trademe stats` (listings.json): live listings with the most watchers, and 7-day views/watchers per car family
     watch_top?: { title: string; views: number; watchers: number; watch_rate_pct: number | null }[];
     families?: { label: string; listings: number; new_views: number; new_watchers: number; watch_rate_pct: number | null }[];
+    // from `trademe rank`: where our best listing comes up in Trade Me's search for each word (null = not in the first `depth`)
+    ranks?: { measured: string; depth: number; words: { q: string; best_rank: number | null; car: string | null; previous: number | null }[] } | null;
   };
   pending_codes?: { verb: string; what: string; to: string; hours_left: number }[];
   capabilities?: { items?: { category: string; name: string; say?: string; code?: string }[] };
 };
 
-const W = 1080, PAD = 44;
+// Owner 2026-11-02: every ledger view in this one picture (sales, ads, Trade Me, watchers per car, car families, prices vs
+// market, new-release radar, search ranks, stock, customers and codes), 3-8 rows per block, "无数据" when a block has none;
+// width 1080 and never taller than MAX_H (WeChat squeezes taller images until they can't be read).
+const W = 1080, PAD = 44, MAX_H = 6000;
 const C = { bg: "#111318", card: "#1b1f27", text: "#f0f2f5", muted: "#9aa3ae", green: "#58ca84", red: "#e86060", amber: "#f3ba4e", line: "#2a2f39" };
 const money = (n: number) => `${n < 0 ? "−" : ""}$${Math.abs(n).toLocaleString("en-NZ", { maximumFractionDigits: 0 })}`;
 const nzTime = (iso: string) =>
@@ -82,29 +88,45 @@ export async function GET(request: NextRequest) {
 
   // Trade Me
   const tm = s.tm_summary;
-  const trademe: Block = { title: "Trade Me", kpis: tm ? [["在架", `${tm.live} 件`], ["7 天新浏览", `${tm.new_views}`], ["7 天新关注", `${tm.new_watchers}`, C.green],
-      ["快到期没人关注", `${tm.ending_7d_no_watchers}`, tm.ending_7d_no_watchers ? C.amber : undefined]] : [],
+  const trademe: Block = { title: "Trade Me 在架", kpis: tm ? [["在架", `${tm.live} 件`], ["7 天浏览", `${tm.new_views}`], ["7 天收藏", `${tm.new_watchers}`, C.green],
+      ["收藏率", tm.watch_rate_pct == null ? "—" : `${tm.watch_rate_pct}%`], ["快到期没人收藏", `${tm.ending_7d_no_watchers}`, tm.ending_7d_no_watchers ? C.amber : undefined]] : [],
     lines: tm ? [
       ...tm.new.slice(0, 3).map((n) => [`新上架 ${cut(n.title, 30)}`, `${n.days_live} 天 · 浏览 ${n.views} · 关注 ${n.watchers}`] as [string, string]),
       ...tm.top_watched.slice(0, 2).map((b) => [`关注最多 ${cut(b.title, 28)}`, `关注 +${b.watchers}`] as [string, string]),
       ...tm.slow.slice(0, 2).map((b) => [`没人关注 ${cut(b.title, 28)}`, `${b.days_on_trademe} 天 · 浏览 ${b.views}`] as [string, string]),
-    ] : [], empty: "Trade Me 数据还没推过来" };
+    ] : [], empty: "无数据（Trade Me 数据还没推过来）" };
 
   // 关注量 / 车系: the numbers `trademe stats` wrote into the snapshot (listings.json), shown as they are
   const pctText = (v: number | null | undefined) => (v == null ? "—" : `${v}%`);
-  const watchB: Block = { title: "关注量（在架 Top 8）与车系", kpis: [],
-    lines: tm ? [
-      ...(tm.watch_top ?? []).slice(0, 8).map((b) => [cut(b.title, 22), `浏览 ${b.views} · 关注 ${b.watchers} · 收藏率 ${pctText(b.watch_rate_pct)}`] as [string, string]),
-      ...(tm.families ?? []).map((f) => [`车系 ${f.label}（${f.listings} 件，近 7 天）`, `浏览 ${f.new_views} · 关注 ${f.new_watchers} · 收藏率 ${pctText(f.watch_rate_pct)}`] as [string, string]),
-    ] : [], empty: "关注量数据还没推过来" };
+  const watchB: Block = { title: "每台关注量 Top 8", kpis: [],
+    lines: (tm?.watch_top ?? []).slice(0, 8).map((b) => [cut(b.title, 22), `浏览 ${b.views} · 关注 ${b.watchers} · 收藏率 ${pctText(b.watch_rate_pct)}`] as [string, string]),
+    empty: "无数据（关注量还没推过来）" };
+  const famB: Block = { title: "车系收藏率（近 7 天）", kpis: [],
+    lines: (tm?.families ?? []).slice(0, 8).map((f) => [`${f.label}（${f.listings} 件）`, `浏览 ${f.new_views} · 关注 ${f.new_watchers} · 收藏率 ${pctText(f.watch_rate_pct)}`] as [string, string]),
+    empty: "无数据（车系数据还没推过来）" };
 
   // 比价: the market report's own numbers (our price, cheapest same-car price, % apart), biggest gap first
   const priced = (market?.products ?? []).filter((p) => p.our_price != null && p.market && p.vs_market_pct != null)
     .sort((a, b) => Math.abs(b.vs_market_pct as number) - Math.abs(a.vs_market_pct as number)).slice(0, 8);
-  const priceB: Block = { title: "比价：我们价 vs 同款市场价（Bay Hobbies / Trade Me）", kpis: [],
+  const priceB: Block = { title: "比价：我们价 vs 同款市场价（差价最大 8 台）", kpis: [],
     lines: priced.map((p) => [cut(p.name, 16),
       `我们 ${money(p.our_price as number)} · ${p.market?.source} ${money(p.market?.price ?? 0)} · ${(p.vs_market_pct as number) > 0 ? "+" : ""}${p.vs_market_pct}%`] as [string, string]),
-    empty: "还没有能比的同款价" };
+    empty: "无数据（还没有能比的同款价）" };
+
+  // 新品雷达: this week's candidates from the same market report (dropped ones left out), in the report's own order
+  const weekCut = new Date(now.getTime() - 7 * 86400000).toISOString();
+  const cands = (market?.radar ?? []).filter((r) => r.status !== "dropped" && r.at >= weekCut).slice(0, 5);
+  const radarB: Block = { title: "新品雷达（本周候选）", kpis: [],
+    lines: cands.map((r) => [cut(`${r.brand} ${r.name}`, 24),
+      `${r.family_label} · ${r.overseas_nzd != null ? money(r.overseas_nzd) : "价格缺"}${r.margin_est_nzd != null ? ` · 估毛利 ${money(r.margin_est_nzd)}` : ""} · ${RADAR_LABELS[r.status]}`] as [string, string]),
+    empty: "无数据（本周没有新候选）" };
+
+  // 搜索排名: the last `trademe rank` measurement as written, first 8 words
+  const rk = tm?.ranks;
+  const rankB: Block = { title: `搜索排名（Trade Me 搜索前 ${rk?.depth ?? 200} 名）`, kpis: [],
+    lines: (rk?.words ?? []).slice(0, 8).map((w) => [`「${cut(w.q, 18)}」`,
+      (w.best_rank == null ? `前 ${rk?.depth ?? 200} 名没有` : `第 ${w.best_rank} 位 ${cut(w.car ?? "", 14)}`) + (w.previous != null ? ` · 上次 ${w.previous}` : "")] as [string, string]),
+    empty: "无数据（还没测过排名）" };
 
   // 库存
   const spare = stock.items.filter((i) => i.status === "InStock" && !i.listingId);
@@ -128,17 +150,22 @@ export async function GET(request: NextRequest) {
   // every phrase the bots answer (帮我查) and every errand with its approval word (帮我办), owner 2026-10-28: all of them
   const items = s.capabilities?.items ?? [];
   const first = (say: string) => say.split(" / ")[0];
-  const asks = items.filter((i) => i.category === "ask" && i.say).map((i) => first(i.say as string));
-  const dos = items.filter((i) => i.category === "do" && i.say).map((i) => ({ say: first(i.say as string), code: i.code ?? null }));
+  const allAsks = items.filter((i) => i.category === "ask" && i.say).map((i) => first(i.say as string));
+  const allDos = items.filter((i) => i.category === "do" && i.say).map((i) => ({ say: first(i.say as string), code: i.code ?? null }));
 
-  const blocks = [sales, ads, trademe, watchB, priceB, stockB, people];
+  const blocks = [sales, ads, trademe, watchB, famB, priceB, radarB, rankB, stockB, people];
   const blockH = (b: Block) => 56 + (b.kpis.length ? 112 : 0) + Math.max(b.lines.length || (b.empty ? 1 : 0), 0) * 40 + 36;
-  const askRows = Math.ceil(asks.length / 2);
-  const H = PAD + 100 + 90 + 20 + blocks.reduce((h, b) => h + blockH(b) + 20, 0) + 56 + askRows * 40 + 60 + dos.length * 40 + 60 + 50 + PAD;
+  // the phrase lists go below the blocks and only as many rows as still fit under MAX_H (the blocks come first)
+  const fixedH = PAD + 100 + 90 + 20 + blocks.reduce((h, b) => h + blockH(b) + 20, 0) + 56 + 60 + 60 + 50 + PAD;
+  const spareRows = Math.max(0, Math.floor((MAX_H - fixedH) / 40));
+  const askRows = Math.min(Math.ceil(allAsks.length / 2), spareRows);
+  const asks = allAsks.slice(0, askRows * 2);
+  const dos = allDos.slice(0, Math.max(0, spareRows - askRows));
+  const H = Math.min(MAX_H, fixedH + askRows * 40 + dos.length * 40);
 
   const title = "DRIFTAE 运营总览";
   const sub = `截至 ${nzTime(now.toISOString())}` + (s.built ? ` · 广告/Trade Me 数据 ${nzTime(s.built)}` : "");
-  const footer = "数字和账本网页一样：销售看「账本」，库存看「库存」，广告、Trade Me 和关注量看「运营」，比价看「市场」。";
+  const footer = "数字和账本网页一样：销售看「账本」，库存看「库存」，广告、Trade Me、关注量和搜索排名看「运营」，比价和新品雷达看「市场」。";
   const allText = [title, sub, verdict, footer, "帮我查（直接跟 bot 说，只看不改）", "帮我办（往外发、花钱、改数的先出卡，回「口令 + 6 位码」）", "回", "码", "直接办",
     ...blocks.flatMap((b) => [b.title, b.empty ?? "", ...b.kpis.flatMap((k) => [k[0], k[1]]), ...b.lines.flatMap((l) => [l[0], l[1] ?? ""])]),
     ...asks, ...dos.flatMap((d) => [d.say, d.code ?? ""]), "0123456789$.,%−—·（）/：…「」+ "].join("");
