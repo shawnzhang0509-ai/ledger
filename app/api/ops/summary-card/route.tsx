@@ -3,19 +3,23 @@ import { ImageResponse } from "next/og";
 import { getKvClient } from "@/lib/kv";
 import { loadBooks, loadStockReport } from "@/lib/books-server";
 import { nzDate } from "@/lib/stock";
-import { loadMarketReport } from "@/lib/market-server";
+import { loadMarketReport, loadProducts } from "@/lib/market-server";
 import type { AdRace } from "@/lib/ad-race";
 import { isAuthenticated, pushTokenMatches } from "@/lib/session";
 
 // 运营总览 (owner 2026-10-27; 2026-11-03 "一张图看全"): one long PNG for WeChat with sales, ads (the race), Trade Me,
 // watchers per car and family, prices against the market, the new-release radar, search ranks, stock, customers waiting
 // and codes waiting. Car names wrap to two lines instead of being cut. The everyday phrases and approval words moved to
-// the 「能做什么」 card (/api/team/card), which is where people ask for them. Sales and stock come from the books themselves; ads, Trade Me, the inbox
+// the 「能做什么」 card (/api/team/card), which is where people ask for them.
+// Two pictures (owner 2026-11-03 "能不能配车的照片…分两张图，看车名我看不懂"): ?part=business (to-dos, sales, ads, search
+// ranks, stock, who waits) and ?part=cars, where every car row shows its photo (Trade Me's first photo, from the snapshot,
+// or the catalogue photo for the price rows). Sales and stock come from the books themselves; ads, Trade Me, the inbox
 // and pending codes from the ops snapshot driftae-ops pushes every 30 min (`dt dashboard --push`). `dt ops card` saves
 // it, the bot sends it; the 07:30 daily check sends it too. Nothing here is computed twice: the same sources as the pages.
 export const dynamic = "force-dynamic";
 
-type Brief = { listing_id: number; title: string; price: number | null; views: number; watchers: number };
+type CarRef = { label?: string; product?: string | null; photo?: string | null };
+type Brief = CarRef & { listing_id: number; title: string; price: number | null; views: number; watchers: number };
 type Snap = {
   built?: string;
   ads?: { ad: string; window: string; status: string; spend: number; conversations: number; impressions: number }[];
@@ -23,10 +27,10 @@ type Snap = {
   inbox?: { status: string }[];
   tm_summary?: {
     live: number; new_views: number; new_watchers: number; top_watched: Brief[];
-    new: { title: string; days_live: number; views: number; watchers: number }[];
-    slow: { title: string; days_on_trademe: number; views: number }[]; ending_7d_no_watchers: number;
+    new: (CarRef & { title: string; days_live: number; views: number; watchers: number })[];
+    slow: (CarRef & { title: string; days_on_trademe: number; views: number })[]; ending_7d_no_watchers: number;
     // from `trademe stats` (listings.json): live listings with the most watchers, and 7-day views/watchers per car family
-    watch_top?: { title: string; views: number; watchers: number; watch_rate_pct: number | null }[];
+    watch_top?: (CarRef & { title: string; views: number; watchers: number; watch_rate_pct: number | null })[];
     families?: { label: string; listings: number; new_views: number; new_watchers: number; watch_rate_pct: number | null }[];
   };
   // `dt dashboard`: the latest search-rank measurement vs the one before (trademe/ranks), counted by dt
@@ -51,29 +55,49 @@ async function font(text: string, weight: number) {
 }
 
 type Kpi = [string, string, string?];
-type Line = [string, string?];
+type Line = [string, string?, (string | null)?];   // left, right, photo
+// photos only from where our cars' photos live (Trade Me's CDN, our R2 bucket), as /api/trademe/listing-card
+const photoOk = (u?: string | null) => !!u && (/^https:\/\/([\w-]+\.)*(tmcdn\.co\.nz|r2\.dev)\//.test(u) || u.startsWith("data:image/"));
+const PHOTO_W = 96, PHOTO_H = 72, ROW_PHOTO = 84;
 type Block = { title: string; kpis: Kpi[]; lines: Line[]; empty?: string; note?: string };
 
 // A row's left text wraps (up to two lines) instead of being cut; the card's height has to be known up front, so the
 // rows are measured roughly: CJK and full-width ≈ 1 em, Latin ≈ 0.6 em (a little generous, so a row never wraps unplanned) at 21px, inside 1080 − margins − the right text.
 const FS = 21, ROW1 = 40, ROW_EXTRA = 28;
 const ems = (t: string) => Array.from(t).reduce((n, ch) => n + (ch.charCodeAt(0) > 0x2e7f ? 1 : 0.6), 0);
-const leftEms = (right?: string) => (W - 2 * PAD - 48 - (right ? ems(right) * FS + 16 : 0)) / FS;
-function wrap([l, r]: Line): Line {
-  const room = leftEms(r) * 1.8;
-  if (ems(l) <= room) return [l, r];
+const leftEms = (right?: string, photo?: boolean) =>
+  (W - 2 * PAD - 48 - (right ? ems(right) * FS + 16 : 0) - (photo ? PHOTO_W + 14 : 0)) / FS;
+function wrap([l, r, p]: Line): Line {
+  const ph = photoOk(p) ? p : null, room = leftEms(r, !!ph) * 1.8;
+  if (ems(l) <= room) return [l, r, ph];
   let out = "", n = 0;
   for (const ch of Array.from(l)) { n += ems(ch); if (n > room) break; out += ch; }
-  return [out + "…", r];
+  return [out + "…", r, ph];
 }
-const rowH = ([l, r]: Line) => (ems(l) > leftEms(r) * 0.9 ? ROW1 + ROW_EXTRA : ROW1);
+const rowH = ([l, r, p]: Line) => (p ? ROW_PHOTO : ems(l) > leftEms(r) * 0.9 ? ROW1 + ROW_EXTRA : ROW1);
+const carName = (c: CarRef & { title: string }) => c.label || c.title;
+
+// A photo that can't be fetched would fail the whole picture, so every photo is fetched first (a few seconds at most) and
+// passed in as data; a row whose photo didn't come back just has no photo.
+async function inline(url: string): Promise<string | null> {
+  try {
+    const r = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0 (driftae-ledger)" }, signal: AbortSignal.timeout(6000) });
+    const type = r.headers.get("content-type") ?? "";
+    if (!r.ok || !/^image\/(jpeg|png)/.test(type)) return null;
+    return `data:${type.split(";")[0]};base64,${Buffer.from(await r.arrayBuffer()).toString("base64")}`;
+  } catch {
+    return null;
+  }
+}
 
 export async function GET(request: NextRequest) {
   if (!isAuthenticated(request) && !pushTokenMatches(request.headers.get("authorization"))) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  const [books, stock, snap, market] = await Promise.all([loadBooks(), loadStockReport(), getKvClient().get("ops:metrics"),
-    loadMarketReport().catch(() => null)]);
+  const part = request.nextUrl.searchParams.get("part") === "cars" ? "cars" : "business";
+  const [books, stock, snap, market, catalogue] = await Promise.all([loadBooks(), loadStockReport(), getKvClient().get("ops:metrics"),
+    loadMarketReport().catch(() => null), loadProducts().catch(() => [])]);
+  const imageOf = new Map(catalogue.map((p) => [p.id, p.image ?? null]));
   const s = (snap ?? {}) as Snap;
   const now = new Date();
   const today = nzDate(now), month = today.slice(0, 7);
@@ -107,16 +131,16 @@ export async function GET(request: NextRequest) {
   const trademe: Block = { title: "Trade Me", kpis: tm ? [["在架", `${tm.live} 件`], ["7 天新浏览", `${tm.new_views}`], ["7 天新关注", `${tm.new_watchers}`, C.green],
       ["快到期没人关注", `${tm.ending_7d_no_watchers}`, tm.ending_7d_no_watchers ? C.amber : undefined]] : [],
     lines: tm ? [
-      ...tm.new.slice(0, 3).map((n) => [`新上架 ${n.title}`, `${n.days_live} 天 · 浏览 ${n.views} · 关注 ${n.watchers}`] as Line),
-      ...tm.top_watched.slice(0, 2).map((b) => [`关注最多 ${b.title}`, `关注 +${b.watchers}`] as Line),
-      ...tm.slow.slice(0, 2).map((b) => [`没人关注 ${b.title}`, `${b.days_on_trademe} 天 · 浏览 ${b.views}`] as Line),
+      ...tm.new.slice(0, 3).map((n) => [`新上架 ${carName(n)}`, `${n.days_live} 天 · 浏览 ${n.views} · 关注 ${n.watchers}`, n.photo] as Line),
+      ...tm.top_watched.slice(0, 2).map((b) => [`关注最多 ${carName(b)}`, `关注 +${b.watchers}`, b.photo] as Line),
+      ...tm.slow.slice(0, 2).map((b) => [`没人关注 ${carName(b)}`, `${b.days_on_trademe} 天 · 浏览 ${b.views}`, b.photo] as Line),
     ] : [], empty: "Trade Me 数据还没推过来" };
 
   // 关注量 / 车系: the numbers `trademe stats` wrote into the snapshot (listings.json), shown as they are
   const pctText = (v: number | null | undefined) => (v == null ? "—" : `${v}%`);
   const watchB: Block = { title: "关注量（在架 Top 8）与车系", kpis: [],
     lines: tm ? [
-      ...(tm.watch_top ?? []).slice(0, 8).map((b) => [b.title, `浏览 ${b.views} · 关注 ${b.watchers} · 收藏率 ${pctText(b.watch_rate_pct)}`] as Line),
+      ...(tm.watch_top ?? []).slice(0, 8).map((b) => [carName(b), `浏览 ${b.views} · 关注 ${b.watchers} · 收藏率 ${pctText(b.watch_rate_pct)}`, b.photo] as Line),
       ...(tm.families ?? []).map((f) => [`车系 ${f.label}（${f.listings} 件，近 7 天）`, `浏览 ${f.new_views} · 关注 ${f.new_watchers} · 收藏率 ${pctText(f.watch_rate_pct)}`] as Line),
     ] : [], empty: "关注量数据还没推过来" };
 
@@ -134,8 +158,8 @@ export async function GET(request: NextRequest) {
     kpis: refs ? [["货号已确认", `${refs.confirmed} 台`, refs.confirmed ? C.green : C.amber], ["待核对", `${refs.candidate} 台`, refs.candidate ? C.amber : undefined],
       ["不知道货号", `${refs.unknown} 台`], ["Bay Hobbies 数据", market?.bayhobbies_seen ? nzTime(market.bayhobbies_seen).split(" ")[0] : "—"]] : [],
     lines: priced.length
-      ? priced.map((p) => [p.name, `我们 ${money(p.our_price as number)} · ${p.market?.source} ${money(p.market?.price ?? 0)} · ${signed(p.vs_market_pct as number)}`] as Line)
-      : similar.map((p) => [`同车型参考 ${p.name}`, `我们 ${money(p.our_price as number)} · BH 别色 ${money(p.bayhobbies?.price ?? 0)} · ${signed(p.vs_bayhobbies_pct as number)}`] as Line),
+      ? priced.map((p) => [p.name, `我们 ${money(p.our_price as number)} · ${p.market?.source} ${money(p.market?.price ?? 0)} · ${signed(p.vs_market_pct as number)}`, imageOf.get(p.product)] as Line)
+      : similar.map((p) => [`同车型参考 ${p.name}`, `我们 ${money(p.our_price as number)} · BH 别色 ${money(p.bayhobbies?.price ?? 0)} · ${signed(p.vs_bayhobbies_pct as number)}`, imageOf.get(p.product)] as Line),
     empty: market ? "还没有能比的价" : "无数据（市场模块没读到）",
     note: priced.length ? undefined : "货号确认后才算同款比价，在账本「市场」页确认。" };
 
@@ -175,8 +199,12 @@ export async function GET(request: NextRequest) {
     missing.length && `${missing.length} 单缺成本`, tm?.ending_7d_no_watchers && `${tm.ending_7d_no_watchers} 件快到期没人关注`].filter(Boolean) as string[];
   const verdict = todo.length ? `要人处理：${todo.join(" · ")}` : "今天没有等人处理的事";
 
-  const blocks = [sales, ads, trademe, watchB, priceB, radarB, rankB, stockB, people];
+  const blocks = part === "cars" ? [trademe, watchB, priceB, radarB] : [sales, ads, rankB, stockB, people];
   for (const b of blocks) b.lines = b.lines.map(wrap);
+  const photos = new Map<string, string | null>();
+  const wanted = Array.from(new Set(blocks.flatMap((b) => b.lines.map((l) => l[2]).filter((u): u is string => !!u))));
+  await Promise.all(wanted.map(async (u) => photos.set(u, await inline(u))));
+  for (const b of blocks) b.lines = b.lines.map(([l, r, p]) => wrap([l, r, p ? photos.get(p) ?? null : null]));
   const blockH = (b: Block) => 56 + (b.kpis.length ? 112 : 0) + (b.lines.length ? b.lines.reduce((h, l) => h + rowH(l), 0) : b.empty ? ROW1 : 0)
     + (b.note ? 34 : 0) + 36;
   const height = () => PAD + 100 + 90 + blocks.reduce((h, b) => h + blockH(b) + 20, 0) + 80 + PAD;
@@ -188,9 +216,11 @@ export async function GET(request: NextRequest) {
   }
   const H = height();
 
-  const title = "DRIFTAE 运营总览";
+  const title = part === "cars" ? "DRIFTAE 运营总览 ② 车" : "DRIFTAE 运营总览 ① 生意";
   const sub = `截至 ${nzTime(now.toISOString())}` + (s.built ? ` · 广告/Trade Me 数据 ${nzTime(s.built)}` : "");
-  const footer = "数字和账本网页一样：销售看「账本」，库存看「库存」，广告、Trade Me、关注量和排名看「运营」，比价和雷达看「市场」。常用问法和审批口令：跟 bot 说「能做什么」。";
+  const footer = part === "cars"
+    ? "数字和账本网页一样：Trade Me 和关注量看「运营」，比价和雷达看「市场」。照片是 Trade Me 刊登的第一张（比价用网站的主图）。"
+    : "数字和账本网页一样：销售看「账本」，库存看「库存」，广告和排名看「运营」。车的表现在第 ② 张。常用问法和审批口令：跟 bot 说「能做什么」。";
   const allText = [title, sub, verdict, footer,
     ...blocks.flatMap((b) => [b.title, b.empty ?? "", b.note ?? "", ...b.kpis.flatMap((k) => [k[0], k[1]]), ...b.lines.flatMap((l) => [l[0], l[1] ?? ""])]),
     "0123456789$.,%−—·（）/：…「」+↑↓→ "].join("");
@@ -218,8 +248,12 @@ export async function GET(request: NextRequest) {
                 ))}
               </div>
             )}
-            {b.lines.map(([l, r], i) => (
-              <div key={i} style={{ display: "flex", height: rowH([l, r]), alignItems: "center", fontSize: FS, lineHeight: `${ROW_EXTRA}px`, borderTop: `1px solid ${C.line}` }}>
+            {b.lines.map(([l, r, p], i) => (
+              <div key={i} style={{ display: "flex", height: rowH([l, r, p]), alignItems: "center", fontSize: FS, lineHeight: `${ROW_EXTRA}px`, borderTop: `1px solid ${C.line}` }}>
+                {p ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={p} width={PHOTO_W} height={PHOTO_H} style={{ objectFit: "cover", borderRadius: 8, marginRight: 14 }} alt="" />
+                ) : null}
                 <div style={{ flex: 1, display: "flex" }}>{l}</div>
                 {r ? <div style={{ color: C.muted, marginLeft: 16, whiteSpace: "nowrap" }}>{r}</div> : null}
               </div>
