@@ -25,6 +25,8 @@ export type PriceLine = {
   our_price: number | null; our_price_from: OurPrice["from"] | null; goods_cost_nzd: number | null;
   bayhobbies: { price: number; match: "ref" | "model"; title: string; url: string | null } | null;
   vs_bayhobbies_pct: number | null;        // > 0: we are dearer than Bay Hobbies
+  market: { price: number; source: string } | null;   // cheapest same-car (same ref) price: Bay Hobbies or another Trade Me seller
+  vs_market_pct: number | null;            // > 0: we are dearer than that
   others: Other[];                         // other Trade Me sellers + prices people or bots recorded
 };
 export type RadarLine = RadarRow & { family_label: string; family_sold_per_product: number | null;
@@ -76,12 +78,17 @@ export function marketReport(input: {
         kind: "recorded", id: o.id, source: o.source, total_nzd: o.total_nzd, shipping_known: o.shipping_known,
         checked: o.status === "confirmed", url: o.url, title: null })),
     ].sort((a, b) => a.total_nzd - b.total_nzd);
+    const same = [
+      ...(bh && bh.match === "ref" ? [{ price: bh.price_nzd as number, source: "Bay Hobbies" }] : []),
+      ...others.filter((o) => o.kind === "trademe" && o.checked).map((o) => ({ price: o.total_nzd, source: "Trade Me" })),
+    ].sort((a, b) => a.price - b.price)[0] ?? null;
     return {
       product: p.id, name: p.name, brand: r?.brand ?? p.brand ?? null, ref: r?.ref ?? null, ref_status: r?.status ?? "unknown", colour: r?.colour ?? null,
       our_price: our?.price ?? null, our_price_from: our?.from ?? null,
       goods_cost_nzd: rmb && input.nzdPerCny ? Math.round(Number(rmb[1]) * input.nzdPerCny) : null,
       bayhobbies: bh ? { price: bh.price_nzd as number, match: bh.match === "ref" ? "ref" : "model", title: bh.title, url: bh.url } : null,
       vs_bayhobbies_pct: pct(our?.price ?? null, bh?.price_nzd ?? null),
+      market: same, vs_market_pct: pct(our?.price ?? null, same?.price ?? null),
       others,
     };
   }).sort((a, b) => Number(!a.bayhobbies) - Number(!b.bayhobbies) || (b.vs_bayhobbies_pct ?? -999) - (a.vs_bayhobbies_pct ?? -999)
