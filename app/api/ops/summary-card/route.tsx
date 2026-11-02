@@ -99,7 +99,8 @@ export async function GET(request: NextRequest) {
     lines: (s.ad_race?.ads ?? []).slice(0, 5).map((r) => [`${r.ad === s.ad_race?.leader ? "领先 " : ""}${r.name || r.ad}`,
       `${r.done ? "跑满" : `第 ${r.days}/${s.ad_race?.days} 天`} · $${r.spend.toFixed(2)} · 对话 ${r.conversations}` +
       (r.cost_per_conversation != null ? ` · 每对话 $${r.cost_per_conversation.toFixed(2)}` : "")] as Line),
-    empty: "赛马还没有数据", note: lead ? undefined : "赛马还没有能比的（每条要跑满 7 天、展示过 1,000）" };
+    empty: "赛马还没有数据（每条要跑满 7 天、展示过 1,000 才比）",
+    note: lead || !(s.ad_race?.ads ?? []).length ? undefined : "赛马还没有能比的（每条要跑满 7 天、展示过 1,000）" };
 
   // Trade Me
   const tm = s.tm_summary;
