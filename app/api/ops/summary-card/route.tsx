@@ -3,6 +3,7 @@ import { ImageResponse } from "next/og";
 import { getKvClient } from "@/lib/kv";
 import { loadBooks, loadStockReport } from "@/lib/books-server";
 import { nzDate } from "@/lib/stock";
+import { loadMarketReport } from "@/lib/market-server";
 import type { AdRace } from "@/lib/ad-race";
 import { isAuthenticated, pushTokenMatches } from "@/lib/session";
 
@@ -22,6 +23,9 @@ type Snap = {
     live: number; new_views: number; new_watchers: number; top_watched: Brief[];
     new: { title: string; days_live: number; views: number; watchers: number }[];
     slow: { title: string; days_on_trademe: number; views: number }[]; ending_7d_no_watchers: number;
+    // from `trademe stats` (listings.json): live listings with the most watchers, and 7-day views/watchers per car family
+    watch_top?: { title: string; views: number; watchers: number; watch_rate_pct: number | null }[];
+    families?: { label: string; listings: number; new_views: number; new_watchers: number; watch_rate_pct: number | null }[];
   };
   pending_codes?: { verb: string; what: string; to: string; hours_left: number }[];
   capabilities?: { items?: { category: string; name: string; say?: string; code?: string }[] };
@@ -49,7 +53,8 @@ export async function GET(request: NextRequest) {
   if (!isAuthenticated(request) && !pushTokenMatches(request.headers.get("authorization"))) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  const [books, stock, snap] = await Promise.all([loadBooks(), loadStockReport(), getKvClient().get("ops:metrics")]);
+  const [books, stock, snap, market] = await Promise.all([loadBooks(), loadStockReport(), getKvClient().get("ops:metrics"),
+    loadMarketReport().catch(() => null)]);
   const s = (snap ?? {}) as Snap;
   const now = new Date();
   const today = nzDate(now), month = today.slice(0, 7);
@@ -85,6 +90,22 @@ export async function GET(request: NextRequest) {
       ...tm.slow.slice(0, 2).map((b) => [`没人关注 ${cut(b.title, 28)}`, `${b.days_on_trademe} 天 · 浏览 ${b.views}`] as [string, string]),
     ] : [], empty: "Trade Me 数据还没推过来" };
 
+  // 关注量 / 车系: the numbers `trademe stats` wrote into the snapshot (listings.json), shown as they are
+  const pctText = (v: number | null | undefined) => (v == null ? "—" : `${v}%`);
+  const watchB: Block = { title: "关注量（在架 Top 8）与车系", kpis: [],
+    lines: tm ? [
+      ...(tm.watch_top ?? []).slice(0, 8).map((b) => [cut(b.title, 22), `浏览 ${b.views} · 关注 ${b.watchers} · 收藏率 ${pctText(b.watch_rate_pct)}`] as [string, string]),
+      ...(tm.families ?? []).map((f) => [`车系 ${f.label}（${f.listings} 件，近 7 天）`, `浏览 ${f.new_views} · 关注 ${f.new_watchers} · 收藏率 ${pctText(f.watch_rate_pct)}`] as [string, string]),
+    ] : [], empty: "关注量数据还没推过来" };
+
+  // 比价: the market report's own numbers (our price, cheapest same-car price, % apart), biggest gap first
+  const priced = (market?.products ?? []).filter((p) => p.our_price != null && p.market && p.vs_market_pct != null)
+    .sort((a, b) => Math.abs(b.vs_market_pct as number) - Math.abs(a.vs_market_pct as number)).slice(0, 8);
+  const priceB: Block = { title: "比价：我们价 vs 同款市场价（Bay Hobbies / Trade Me）", kpis: [],
+    lines: priced.map((p) => [cut(p.name, 16),
+      `我们 ${money(p.our_price as number)} · ${p.market?.source} ${money(p.market?.price ?? 0)} · ${(p.vs_market_pct as number) > 0 ? "+" : ""}${p.vs_market_pct}%`] as [string, string]),
+    empty: "还没有能比的同款价" };
+
   // 库存
   const spare = stock.items.filter((i) => i.status === "InStock" && !i.listingId);
   const stockB: Block = { title: "库存", kpis: [["在库（含已上架、在途）", `${stock.totals.inStock} 台`], ["落地成本", money(stock.totals.stockCost)],
@@ -110,14 +131,14 @@ export async function GET(request: NextRequest) {
   const asks = items.filter((i) => i.category === "ask" && i.say).map((i) => first(i.say as string));
   const dos = items.filter((i) => i.category === "do" && i.say).map((i) => ({ say: first(i.say as string), code: i.code ?? null }));
 
-  const blocks = [sales, ads, trademe, stockB, people];
+  const blocks = [sales, ads, trademe, watchB, priceB, stockB, people];
   const blockH = (b: Block) => 56 + (b.kpis.length ? 112 : 0) + Math.max(b.lines.length || (b.empty ? 1 : 0), 0) * 40 + 36;
   const askRows = Math.ceil(asks.length / 2);
   const H = PAD + 100 + 90 + 20 + blocks.reduce((h, b) => h + blockH(b) + 20, 0) + 56 + askRows * 40 + 60 + dos.length * 40 + 60 + 50 + PAD;
 
   const title = "DRIFTAE 运营总览";
   const sub = `截至 ${nzTime(now.toISOString())}` + (s.built ? ` · 广告/Trade Me 数据 ${nzTime(s.built)}` : "");
-  const footer = "数字和账本网页一样：销售看「账本」，库存看「库存」，广告和 Trade Me 看「运营」。";
+  const footer = "数字和账本网页一样：销售看「账本」，库存看「库存」，广告、Trade Me 和关注量看「运营」，比价看「市场」。";
   const allText = [title, sub, verdict, footer, "帮我查（直接跟 bot 说，只看不改）", "帮我办（往外发、花钱、改数的先出卡，回「口令 + 6 位码」）", "回", "码", "直接办",
     ...blocks.flatMap((b) => [b.title, b.empty ?? "", ...b.kpis.flatMap((k) => [k[0], k[1]]), ...b.lines.flatMap((l) => [l[0], l[1] ?? ""])]),
     ...asks, ...dos.flatMap((d) => [d.say, d.code ?? ""]), "0123456789$.,%−—·（）/：…「」+ "].join("");
