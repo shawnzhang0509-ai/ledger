@@ -7,8 +7,10 @@ import { loadMarketReport } from "@/lib/market-server";
 import type { AdRace } from "@/lib/ad-race";
 import { isAuthenticated, pushTokenMatches } from "@/lib/session";
 
-// 运营总览 (owner 2026-10-27): one long PNG for WeChat with sales, ads, Trade Me, stock, customers waiting, codes waiting
-// and the everyday phrases and approval words. Sales and stock come from the books themselves; ads, Trade Me, the inbox
+// 运营总览 (owner 2026-10-27; 2026-11-03 "一张图看全"): one long PNG for WeChat with sales, ads (the race), Trade Me,
+// watchers per car and family, prices against the market, the new-release radar, search ranks, stock, customers waiting
+// and codes waiting. Car names wrap to two lines instead of being cut. The everyday phrases and approval words moved to
+// the 「能做什么」 card (/api/team/card), which is where people ask for them. Sales and stock come from the books themselves; ads, Trade Me, the inbox
 // and pending codes from the ops snapshot driftae-ops pushes every 30 min (`dt dashboard --push`). `dt ops card` saves
 // it, the bot sends it; the 07:30 daily check sends it too. Nothing here is computed twice: the same sources as the pages.
 export const dynamic = "force-dynamic";
@@ -27,16 +29,18 @@ type Snap = {
     watch_top?: { title: string; views: number; watchers: number; watch_rate_pct: number | null }[];
     families?: { label: string; listings: number; new_views: number; new_watchers: number; watch_rate_pct: number | null }[];
   };
+  // `dt dashboard`: the latest search-rank measurement vs the one before (trademe/ranks), counted by dt
+  tm_ranks?: { measured: string; compared_with: string | null; depth: number; words: number; top10: number; top50: number; out: number;
+    moved: { q: string; now: number | null; was: number | null; up: number; car: string | null }[];
+    best: { q: string; rank: number; car: string | null }[] } | null;
   pending_codes?: { verb: string; what: string; to: string; hours_left: number }[];
-  capabilities?: { items?: { category: string; name: string; say?: string; code?: string }[] };
 };
 
-const W = 1080, PAD = 44;
+const W = 1080, PAD = 44, MAX_H = 6000;   // WeChat squashes taller images until they can't be read
 const C = { bg: "#111318", card: "#1b1f27", text: "#f0f2f5", muted: "#9aa3ae", green: "#58ca84", red: "#e86060", amber: "#f3ba4e", line: "#2a2f39" };
 const money = (n: number) => `${n < 0 ? "−" : ""}$${Math.abs(n).toLocaleString("en-NZ", { maximumFractionDigits: 0 })}`;
 const nzTime = (iso: string) =>
   new Date(iso).toLocaleString("zh-CN", { timeZone: "Pacific/Auckland", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
-const cut = (s: string, n: number) => (Array.from(s).length > n ? Array.from(s).slice(0, n).join("") + "…" : s);
 
 async function font(text: string, weight: number) {
   const chars = Array.from(new Set(Array.from(text))).join("");
@@ -47,7 +51,22 @@ async function font(text: string, weight: number) {
 }
 
 type Kpi = [string, string, string?];
-type Block = { title: string; kpis: Kpi[]; lines: [string, string?][]; empty?: string };
+type Line = [string, string?];
+type Block = { title: string; kpis: Kpi[]; lines: Line[]; empty?: string; note?: string };
+
+// A row's left text wraps (up to two lines) instead of being cut; the card's height has to be known up front, so the
+// rows are measured roughly: CJK and full-width ≈ 1 em, Latin ≈ 0.6 em (a little generous, so a row never wraps unplanned) at 21px, inside 1080 − margins − the right text.
+const FS = 21, ROW1 = 40, ROW_EXTRA = 28;
+const ems = (t: string) => Array.from(t).reduce((n, ch) => n + (ch.charCodeAt(0) > 0x2e7f ? 1 : 0.6), 0);
+const leftEms = (right?: string) => (W - 2 * PAD - 48 - (right ? ems(right) * FS + 16 : 0)) / FS;
+function wrap([l, r]: Line): Line {
+  const room = leftEms(r) * 1.8;
+  if (ems(l) <= room) return [l, r];
+  let out = "", n = 0;
+  for (const ch of Array.from(l)) { n += ems(ch); if (n > room) break; out += ch; }
+  return [out + "…", r];
+}
+const rowH = ([l, r]: Line) => (ems(l) > leftEms(r) * 0.9 ? ROW1 + ROW_EXTRA : ROW1);
 
 export async function GET(request: NextRequest) {
   if (!isAuthenticated(request) && !pushTokenMatches(request.headers.get("authorization"))) {
@@ -67,7 +86,7 @@ export async function GET(request: NextRequest) {
   const flagged = books.lines.filter((l) => l.flags.length);
   const sales: Block = { title: "销售", kpis: [["本月营收", money(m?.revenue ?? 0)], ["本月单数", `${m?.orders ?? 0}`],
       ["本月已算清毛利", money(m?.completeGp ?? 0), C.green], ["缺成本的单", `${missing.length}`, missing.length ? C.amber : undefined]],
-    lines: sold7.slice(0, 5).map((l) => [`${l.dateSold.slice(5)} ${cut(l.model, 34)}`, money(l.price + l.shipping)] as [string, string]),
+    lines: sold7.slice(0, 5).map((l) => [`${l.dateSold.slice(5)} ${l.model}`, money(l.price + l.shipping)] as Line),
     empty: "近 7 天没有新卖出的" };
 
   // 广告（近 7 天）
@@ -77,71 +96,103 @@ export async function GET(request: NextRequest) {
   const lead = s.ad_race?.ads?.find((r) => r.ad === s.ad_race?.leader);
   const ads: Block = { title: "广告（近 7 天）", kpis: [["花费", `$${spend.toFixed(2)}`], ["私信对话", `${conv}`],
       ["每个对话", conv ? `$${(spend / conv).toFixed(2)}` : "—"], ["在投", `${live} 条`, live ? C.green : C.amber]],
-    lines: lead ? [[`赛马领先：${cut(lead.name || lead.ad, 30)}`, `每对话 $${(lead.cost_per_conversation ?? 0).toFixed(2)}`]] : [],
-    empty: "赛马还没有能比的（要跑满 7 天）" };
+    lines: (s.ad_race?.ads ?? []).slice(0, 5).map((r) => [`${r.ad === s.ad_race?.leader ? "领先 " : ""}${r.name || r.ad}`,
+      `${r.done ? "跑满" : `第 ${r.days}/${s.ad_race?.days} 天`} · $${r.spend.toFixed(2)} · 对话 ${r.conversations}` +
+      (r.cost_per_conversation != null ? ` · 每对话 $${r.cost_per_conversation.toFixed(2)}` : "")] as Line),
+    empty: "赛马还没有数据", note: lead ? undefined : "赛马还没有能比的（每条要跑满 7 天、展示过 1,000）" };
 
   // Trade Me
   const tm = s.tm_summary;
   const trademe: Block = { title: "Trade Me", kpis: tm ? [["在架", `${tm.live} 件`], ["7 天新浏览", `${tm.new_views}`], ["7 天新关注", `${tm.new_watchers}`, C.green],
       ["快到期没人关注", `${tm.ending_7d_no_watchers}`, tm.ending_7d_no_watchers ? C.amber : undefined]] : [],
     lines: tm ? [
-      ...tm.new.slice(0, 3).map((n) => [`新上架 ${cut(n.title, 30)}`, `${n.days_live} 天 · 浏览 ${n.views} · 关注 ${n.watchers}`] as [string, string]),
-      ...tm.top_watched.slice(0, 2).map((b) => [`关注最多 ${cut(b.title, 28)}`, `关注 +${b.watchers}`] as [string, string]),
-      ...tm.slow.slice(0, 2).map((b) => [`没人关注 ${cut(b.title, 28)}`, `${b.days_on_trademe} 天 · 浏览 ${b.views}`] as [string, string]),
+      ...tm.new.slice(0, 3).map((n) => [`新上架 ${n.title}`, `${n.days_live} 天 · 浏览 ${n.views} · 关注 ${n.watchers}`] as Line),
+      ...tm.top_watched.slice(0, 2).map((b) => [`关注最多 ${b.title}`, `关注 +${b.watchers}`] as Line),
+      ...tm.slow.slice(0, 2).map((b) => [`没人关注 ${b.title}`, `${b.days_on_trademe} 天 · 浏览 ${b.views}`] as Line),
     ] : [], empty: "Trade Me 数据还没推过来" };
 
   // 关注量 / 车系: the numbers `trademe stats` wrote into the snapshot (listings.json), shown as they are
   const pctText = (v: number | null | undefined) => (v == null ? "—" : `${v}%`);
   const watchB: Block = { title: "关注量（在架 Top 8）与车系", kpis: [],
     lines: tm ? [
-      ...(tm.watch_top ?? []).slice(0, 8).map((b) => [cut(b.title, 22), `浏览 ${b.views} · 关注 ${b.watchers} · 收藏率 ${pctText(b.watch_rate_pct)}`] as [string, string]),
-      ...(tm.families ?? []).map((f) => [`车系 ${f.label}（${f.listings} 件，近 7 天）`, `浏览 ${f.new_views} · 关注 ${f.new_watchers} · 收藏率 ${pctText(f.watch_rate_pct)}`] as [string, string]),
+      ...(tm.watch_top ?? []).slice(0, 8).map((b) => [b.title, `浏览 ${b.views} · 关注 ${b.watchers} · 收藏率 ${pctText(b.watch_rate_pct)}`] as Line),
+      ...(tm.families ?? []).map((f) => [`车系 ${f.label}（${f.listings} 件，近 7 天）`, `浏览 ${f.new_views} · 关注 ${f.new_watchers} · 收藏率 ${pctText(f.watch_rate_pct)}`] as Line),
     ] : [], empty: "关注量数据还没推过来" };
 
   // 比价: the market report's own numbers (our price, cheapest same-car price, % apart), biggest gap first
   const priced = (market?.products ?? []).filter((p) => p.our_price != null && p.market && p.vs_market_pct != null)
     .sort((a, b) => Math.abs(b.vs_market_pct as number) - Math.abs(a.vs_market_pct as number)).slice(0, 8);
-  const priceB: Block = { title: "比价：我们价 vs 同款市场价（Bay Hobbies / Trade Me）", kpis: [],
-    lines: priced.map((p) => [cut(p.name, 16),
-      `我们 ${money(p.our_price as number)} · ${p.market?.source} ${money(p.market?.price ?? 0)} · ${(p.vs_market_pct as number) > 0 ? "+" : ""}${p.vs_market_pct}%`] as [string, string]),
-    empty: "还没有能比的同款价" };
+  // until refs are confirmed there is no same-car price: show Bay Hobbies' same-casting price (another colour) as a
+  // reference instead, clearly labelled, with how many refs still need checking on /market
+  const signed = (v: number) => `${v > 0 ? "+" : ""}${v}%`;
+  const similar = priced.length ? [] : (market?.products ?? [])
+    .filter((p) => p.our_price != null && p.bayhobbies?.match === "model" && p.vs_bayhobbies_pct != null)
+    .sort((a, b) => Math.abs(b.vs_bayhobbies_pct as number) - Math.abs(a.vs_bayhobbies_pct as number)).slice(0, 6);
+  const refs = market?.refs;
+  const priceB: Block = { title: "比价：我们价 vs 同款市场价（Bay Hobbies / Trade Me）",
+    kpis: refs ? [["货号已确认", `${refs.confirmed} 台`, refs.confirmed ? C.green : C.amber], ["待核对", `${refs.candidate} 台`, refs.candidate ? C.amber : undefined],
+      ["不知道货号", `${refs.unknown} 台`], ["Bay Hobbies 数据", market?.bayhobbies_seen ? nzTime(market.bayhobbies_seen).split(" ")[0] : "—"]] : [],
+    lines: priced.length
+      ? priced.map((p) => [p.name, `我们 ${money(p.our_price as number)} · ${p.market?.source} ${money(p.market?.price ?? 0)} · ${signed(p.vs_market_pct as number)}`] as Line)
+      : similar.map((p) => [`同车型参考 ${p.name}`, `我们 ${money(p.our_price as number)} · BH 别色 ${money(p.bayhobbies?.price ?? 0)} · ${signed(p.vs_bayhobbies_pct as number)}`] as Line),
+    empty: market ? "还没有能比的价" : "无数据（市场模块没读到）",
+    note: priced.length ? undefined : "货号确认后才算同款比价，在账本「市场」页确认。" };
+
+  // 新品雷达: the candidates on /market, not dropped, in the report's own order
+  const radar = (market?.radar ?? []).filter((c) => c.status !== "dropped");
+  const radarB: Block = { title: "新品雷达", kpis: market ? [["候选", `${radar.filter((c) => c.status === "proposed").length} 台`],
+      ["要", `${radar.filter((c) => c.status === "kept").length} 台`, C.green]] : [],
+    lines: radar.slice(0, 5).map((c) => [`${c.status === "kept" ? "要 " : ""}${c.brand} ${c.name}`,
+      [c.release ? `预计 ${c.release}` : null, c.margin_est_nzd != null ? `估毛利 ${money(c.margin_est_nzd)}` : null].filter(Boolean).join(" · ")] as Line),
+    empty: market ? "雷达上没有候选" : "无数据（市场模块没读到）" };
+
+  // 搜索排名: dt's daily measurement (Trade Me best match), counted by dt
+  const rk = s.tm_ranks;
+  const place = (r: number | null) => (r == null ? `${rk?.depth ?? 200} 名外` : `第 ${r} 名`);
+  const rankB: Block = { title: "Trade Me 搜索排名" + (rk ? `（${nzTime(rk.measured)}${rk.compared_with ? ` 比 ${rk.compared_with.slice(5)}` : ""}）` : ""),
+    kpis: rk ? [["搜索词", `${rk.words}`], ["前 10 名", `${rk.top10}`, C.green], ["前 50 名", `${rk.top50}`], [`${rk.depth} 名外`, `${rk.out}`, rk.out ? C.amber : undefined]] : [],
+    lines: rk ? (rk.moved.length
+      ? rk.moved.map((m) => [`${m.up > 0 ? "↑" : "↓"} 「${m.q}」${m.car ? ` ${m.car}` : ""}`, `${place(m.was)} → ${place(m.now)}`] as Line)
+      : rk.best.map((b) => [`「${b.q}」${b.car ? ` ${b.car}` : ""}`, place(b.rank)] as Line)) : [],
+    empty: "无数据（排名还没推过来）", note: rk && rk.moved.length ? "上面是变化最大的词；每个词的名次看「排名」卡。" : undefined };
 
   // 库存
   const spare = stock.items.filter((i) => i.status === "InStock" && !i.listingId);
   const stockB: Block = { title: "库存", kpis: [["在库（含已上架、在途）", `${stock.totals.inStock} 台`], ["落地成本", money(stock.totals.stockCost)],
       ["已上架", `${stock.totals.listed} 台`], ["在库没上架", `${spare.length} 台`, spare.length ? C.amber : undefined]],
-    lines: spare.slice(0, 3).map((i) => [`没上架 ${cut(i.model, 36)}`, i.landedCost ? money(i.landedCost) : "成本缺"] as [string, string]) };
+    lines: spare.slice(0, 3).map((i) => [`没上架 ${i.model}`, i.landedCost ? money(i.landedCost) : "成本缺"] as Line) };
 
   // 客人和审批
   const waitingCustomers = (s.inbox ?? []).filter((c) => c.status === "waiting").length;
   const codes = s.pending_codes ?? [];
   const people: Block = { title: "客人和审批", kpis: [["等回复的客人", `${waitingCustomers}`, waitingCustomers ? C.red : C.green],
       ["等码的卡", `${codes.length}`, codes.length ? C.amber : C.green], ["账本要核对", `${flagged.length} 单`, flagged.length ? C.amber : undefined]],
-    lines: codes.slice(0, 4).map((c) => [`等「${c.verb}」${cut(c.what, 30)}`, `还剩 ${c.hours_left} 小时`] as [string, string]) };
+    lines: codes.slice(0, 4).map((c) => [`等「${c.verb}」${c.what}`, `还剩 ${c.hours_left} 小时`] as Line) };
 
   // 一句话结论
   const todo = [waitingCustomers && `${waitingCustomers} 位客人等回复`, codes.length && `${codes.length} 张卡等码`,
     missing.length && `${missing.length} 单缺成本`, tm?.ending_7d_no_watchers && `${tm.ending_7d_no_watchers} 件快到期没人关注`].filter(Boolean) as string[];
   const verdict = todo.length ? `要人处理：${todo.join(" · ")}` : "今天没有等人处理的事";
 
-  // 常用口令（from org/capabilities.json via the snapshot, so it never drifts from what the bots do）
-  // every phrase the bots answer (帮我查) and every errand with its approval word (帮我办), owner 2026-10-28: all of them
-  const items = s.capabilities?.items ?? [];
-  const first = (say: string) => say.split(" / ")[0];
-  const asks = items.filter((i) => i.category === "ask" && i.say).map((i) => first(i.say as string));
-  const dos = items.filter((i) => i.category === "do" && i.say).map((i) => ({ say: first(i.say as string), code: i.code ?? null }));
-
-  const blocks = [sales, ads, trademe, watchB, priceB, stockB, people];
-  const blockH = (b: Block) => 56 + (b.kpis.length ? 112 : 0) + Math.max(b.lines.length || (b.empty ? 1 : 0), 0) * 40 + 36;
-  const askRows = Math.ceil(asks.length / 2);
-  const H = PAD + 100 + 90 + 20 + blocks.reduce((h, b) => h + blockH(b) + 20, 0) + 56 + askRows * 40 + 60 + dos.length * 40 + 60 + 50 + PAD;
+  const blocks = [sales, ads, trademe, watchB, priceB, radarB, rankB, stockB, people];
+  for (const b of blocks) b.lines = b.lines.map(wrap);
+  const blockH = (b: Block) => 56 + (b.kpis.length ? 112 : 0) + (b.lines.length ? b.lines.reduce((h, l) => h + rowH(l), 0) : b.empty ? ROW1 : 0)
+    + (b.note ? 34 : 0) + 36;
+  const height = () => PAD + 100 + 90 + blocks.reduce((h, b) => h + blockH(b) + 20, 0) + 80 + PAD;
+  // over the WeChat limit: drop rows from the longest block first (details stay on the pages)
+  while (height() > MAX_H) {
+    const b = blocks.reduce((x, y) => (y.lines.length > x.lines.length ? y : x));
+    if (b.lines.length <= 3) break;
+    b.lines = b.lines.slice(0, -1);
+  }
+  const H = height();
 
   const title = "DRIFTAE 运营总览";
   const sub = `截至 ${nzTime(now.toISOString())}` + (s.built ? ` · 广告/Trade Me 数据 ${nzTime(s.built)}` : "");
-  const footer = "数字和账本网页一样：销售看「账本」，库存看「库存」，广告、Trade Me 和关注量看「运营」，比价看「市场」。";
-  const allText = [title, sub, verdict, footer, "帮我查（直接跟 bot 说，只看不改）", "帮我办（往外发、花钱、改数的先出卡，回「口令 + 6 位码」）", "回", "码", "直接办",
-    ...blocks.flatMap((b) => [b.title, b.empty ?? "", ...b.kpis.flatMap((k) => [k[0], k[1]]), ...b.lines.flatMap((l) => [l[0], l[1] ?? ""])]),
-    ...asks, ...dos.flatMap((d) => [d.say, d.code ?? ""]), "0123456789$.,%−—·（）/：…「」+ "].join("");
+  const footer = "数字和账本网页一样：销售看「账本」，库存看「库存」，广告、Trade Me、关注量和排名看「运营」，比价和雷达看「市场」。常用问法和审批口令：跟 bot 说「能做什么」。";
+  const allText = [title, sub, verdict, footer,
+    ...blocks.flatMap((b) => [b.title, b.empty ?? "", b.note ?? "", ...b.kpis.flatMap((k) => [k[0], k[1]]), ...b.lines.flatMap((l) => [l[0], l[1] ?? ""])]),
+    "0123456789$.,%−—·（）/：…「」+↑↓→ "].join("");
   const [regular, bold] = await Promise.all([font(allText, 400), font(allText, 700)]);
   const box = { display: "flex", flexDirection: "column" as const, background: C.card, borderRadius: 16, padding: "18px 24px" };
 
@@ -167,29 +218,15 @@ export async function GET(request: NextRequest) {
               </div>
             )}
             {b.lines.map(([l, r], i) => (
-              <div key={i} style={{ display: "flex", height: 40, alignItems: "center", fontSize: 21, borderTop: `1px solid ${C.line}` }}>
-                <div style={{ flex: 1, overflow: "hidden", whiteSpace: "nowrap" }}>{l}</div>
-                {r ? <div style={{ color: C.muted, marginLeft: 16 }}>{r}</div> : null}
+              <div key={i} style={{ display: "flex", height: rowH([l, r]), alignItems: "center", fontSize: FS, lineHeight: `${ROW_EXTRA}px`, borderTop: `1px solid ${C.line}` }}>
+                <div style={{ flex: 1, display: "flex" }}>{l}</div>
+                {r ? <div style={{ color: C.muted, marginLeft: 16, whiteSpace: "nowrap" }}>{r}</div> : null}
               </div>
             ))}
-            {!b.lines.length && b.empty ? <div style={{ fontSize: 20, color: C.muted, height: 40, display: "flex", alignItems: "center" }}>{b.empty}</div> : null}
+            {!b.lines.length && b.empty ? <div style={{ fontSize: 20, color: C.muted, height: ROW1, display: "flex", alignItems: "center" }}>{b.empty}</div> : null}
+            {b.note ? <div style={{ fontSize: 18, color: C.muted, height: 34, display: "flex", alignItems: "flex-end" }}>{b.note}</div> : null}
           </div>
         ))}
-        <div style={{ ...box, marginTop: 20 }}>
-          <div style={{ fontSize: 26, fontWeight: 700, height: 44 }}>帮我查（直接跟 bot 说，只看不改）</div>
-          <div style={{ display: "flex", flexWrap: "wrap" }}>
-            {asks.map((a) => <div key={a} style={{ width: "50%", height: 40, fontSize: 21, color: C.text, display: "flex", alignItems: "center", overflow: "hidden", whiteSpace: "nowrap" }}>{`「${cut(a, 19)}」`}</div>)}
-          </div>
-          <div style={{ fontSize: 26, fontWeight: 700, height: 44, marginTop: 16 }}>帮我办（往外发、花钱、改数的先出卡，回「口令 + 6 位码」）</div>
-          {dos.map((d) => (
-            <div key={d.say} style={{ display: "flex", height: 40, alignItems: "center", fontSize: 21, borderTop: `1px solid ${C.line}` }}>
-              <div style={{ flex: 1, overflow: "hidden", whiteSpace: "nowrap" }}>{`「${cut(d.say, 34)}」`}</div>
-              <div style={{ width: 170, color: d.code ? C.amber : C.muted, fontWeight: d.code ? 700 : 400, display: "flex", justifyContent: "flex-end" }}>
-                {d.code ? `回「${d.code} 码」` : "直接办"}
-              </div>
-            </div>
-          ))}
-        </div>
         <div style={{ fontSize: 18, color: C.muted, marginTop: 20, lineHeight: 1.5 }}>{footer}</div>
       </div>
     ),
