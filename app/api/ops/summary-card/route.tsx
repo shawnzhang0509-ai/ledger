@@ -36,6 +36,7 @@ type Snap = {
   // `dt dashboard`: the latest search-rank measurement vs the one before (trademe/ranks), counted by dt
   tm_ranks?: { measured: string; compared_with: string | null; depth: number; words: number; top10: number; top50: number; out: number;
     moved: { q: string; now: number | null; was: number | null; up: number; car: string | null }[];
+    off_trademe?: string[];   // words whose car wasn't on Trade Me when measured (ended, not relisted yet): not a drop
     best: { q: string; rank: number; car: string | null }[] } | null;
   pending_codes?: { verb: string; what: string; to: string; hours_left: number }[];
 };
@@ -178,8 +179,9 @@ export async function GET(request: NextRequest) {
     kpis: rk ? [["搜索词", `${rk.words}`], ["前 10 名", `${rk.top10}`, C.green], ["前 50 名", `${rk.top50}`], [`${rk.depth} 名外`, `${rk.out}`, rk.out ? C.amber : undefined]] : [],
     lines: rk ? (rk.moved.length
       ? rk.moved.map((m) => [`${m.up > 0 ? "↑" : "↓"} 「${m.q}」${m.car ? ` ${m.car}` : ""}`, `${place(m.was)} → ${place(m.now)}`] as Line)
-      : rk.best.map((b) => [`「${b.q}」${b.car ? ` ${b.car}` : ""}`, place(b.rank)] as Line)) : [],
-    empty: "无数据（排名还没推过来）", note: rk && rk.moved.length ? "上面是变化最大的词；每个词的名次看「排名」卡。" : undefined };
+      : rk.best.map((b) => [`「${b.q}」${b.car ? ` ${b.car}` : ""}`, place(b.rank)] as Line))
+      .concat(rk.off_trademe?.length ? [[`车不在架上、搜不到（到期还没重新上架）：${rk.off_trademe.map((q) => `「${q}」`).join("")}`] as Line] : []) : [],
+    empty: "无数据（排名还没推过来）", note: rk && rk.moved.length ? "↑↓ 是车在架上、名次真的变了的词；每个词的名次看「排名」卡。" : undefined };
 
   // 库存
   const spare = stock.items.filter((i) => i.status === "InStock" && !i.listingId);
