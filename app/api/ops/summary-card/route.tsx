@@ -60,7 +60,7 @@ type Line = [string, string?, (string | null)?];   // left, right, photo
 // photos only from where our cars' photos live (Trade Me's CDN, our R2 bucket), as /api/trademe/listing-card
 const photoOk = (u?: string | null) => !!u && (/^https:\/\/([\w-]+\.)*(tmcdn\.co\.nz|r2\.dev)\//.test(u) || u.startsWith("data:image/"));
 const PHOTO_W = 96, PHOTO_H = 72, ROW_PHOTO = 84;
-type Block = { title: string; kpis: Kpi[]; lines: Line[]; empty?: string; note?: string };
+type Block = { title: string; kpis: Kpi[]; lines: Line[]; empty?: string; note?: string; cut?: number };
 
 // A row's left text wraps (up to two lines) instead of being cut; the card's height has to be known up front, so the
 // rows are measured roughly: CJK and full-width ≈ 1 em, Latin ≈ 0.6 em (a little generous, so a row never wraps unplanned) at 21px, inside 1080 − margins − the right text.
@@ -133,17 +133,18 @@ export async function GET(request: NextRequest) {
       ["快到期没人关注", `${tm.ending_7d_no_watchers}`, tm.ending_7d_no_watchers ? C.amber : undefined]] : [],
     lines: tm ? [
       ...tm.new.slice(0, 3).map((n) => [`新上架 ${carName(n)}`, `${n.days_live} 天 · 浏览 ${n.views} · 关注 ${n.watchers}`, n.photo] as Line),
-      ...tm.top_watched.slice(0, 2).map((b) => [`关注最多 ${carName(b)}`, `关注 +${b.watchers}`, b.photo] as Line),
       ...tm.slow.slice(0, 2).map((b) => [`没人关注 ${carName(b)}`, `${b.days_on_trademe} 天 · 浏览 ${b.views}`, b.photo] as Line),
     ] : [], empty: "Trade Me 数据还没推过来" };
 
   // 关注量 / 车系: the numbers `trademe stats` wrote into the snapshot (listings.json), shown as they are
   const pctText = (v: number | null | undefined) => (v == null ? "—" : `${v}%`);
-  const watchB: Block = { title: "关注量（在架 Top 8）与车系", kpis: [],
-    lines: tm ? [
-      ...(tm.watch_top ?? []).slice(0, 8).map((b) => [carName(b), `浏览 ${b.views} · 关注 ${b.watchers} · 收藏率 ${pctText(b.watch_rate_pct)}`, b.photo] as Line),
-      ...(tm.families ?? []).map((f) => [`车系 ${f.label}（${f.listings} 件，近 7 天）`, `浏览 ${f.new_views} · 关注 ${f.new_watchers} · 收藏率 ${pctText(f.watch_rate_pct)}`] as Line),
-    ] : [], empty: "关注量数据还没推过来" };
+  // every live listing (owner 2026-11-03 "trademe 的 33 个没有啊"), most watched first; the snapshot carries all of them
+  const watchB: Block = { title: `在架的每一台（${tm?.watch_top?.length ?? 0} 件，按关注排）`, kpis: [],
+    lines: tm ? (tm.watch_top ?? []).map((b) => [carName(b), `浏览 ${b.views} · 关注 ${b.watchers} · 收藏率 ${pctText(b.watch_rate_pct)}`, b.photo] as Line) : [],
+    empty: "关注量数据还没推过来" };
+  const famB: Block = { title: "车系（近 7 天）", kpis: [],
+    lines: tm ? (tm.families ?? []).map((f) => [`${f.label}（${f.listings} 件）`, `浏览 ${f.new_views} · 关注 ${f.new_watchers} · 收藏率 ${pctText(f.watch_rate_pct)}`] as Line) : [],
+    empty: "关注量数据还没推过来" };
 
   // 比价: the market report's own numbers (our price, cheapest same-car price, % apart), biggest gap first
   const priced = (market?.products ?? []).filter((p) => p.our_price != null && p.market && p.vs_market_pct != null)
@@ -201,7 +202,7 @@ export async function GET(request: NextRequest) {
     missing.length && `${missing.length} 单缺成本`, tm?.ending_7d_no_watchers && `${tm.ending_7d_no_watchers} 件快到期没人关注`].filter(Boolean) as string[];
   const verdict = todo.length ? `要人处理：${todo.join(" · ")}` : "今天没有等人处理的事";
 
-  const blocks = part === "cars" ? [trademe, watchB, priceB, radarB] : [sales, ads, rankB, stockB, people];
+  const blocks = part === "cars" ? [trademe, watchB, famB, priceB, radarB] : [sales, ads, rankB, stockB, people];
   for (const b of blocks) b.lines = b.lines.map(wrap);
   const photos = new Map<string, string | null>();
   const wanted = Array.from(new Set(blocks.flatMap((b) => b.lines.map((l) => l[2]).filter((u): u is string => !!u))));
@@ -215,6 +216,8 @@ export async function GET(request: NextRequest) {
     const b = blocks.reduce((x, y) => (y.lines.length > x.lines.length ? y : x));
     if (b.lines.length <= 3) break;
     b.lines = b.lines.slice(0, -1);
+    b.cut = (b.cut ?? 0) + 1;
+    b.note = `还有 ${b.cut} 件放不下（图太长微信会压糊），在账本「运营」页看全。`;
   }
   const H = height();
 
