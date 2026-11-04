@@ -157,6 +157,14 @@ export async function GET(request: NextRequest) {
     lines: tm ? (tm.watch_top ?? []).map((b) => [carName(b), `浏览 ${b.views} · 关注 ${b.watchers} · 收藏率 ${pctText(b.watch_rate_pct)}`, b.photo,
       costLine(b.product)] as Line) : [],
     empty: "关注量数据还没推过来" };
+  // 进货价还缺哪些 (owner 2026-11-05 "你记着总览车图都标里面"): every catalogue car without an entered 进货价, so the
+  // gap shrinks on the picture as the team fills it (bot: 「<车> 进货价 ¥N」, or the 商品与价格 page)
+  const noCost = (market?.products ?? []).filter((p) => p.cost_cny == null);
+  const costB: Block = { title: "进货价还缺哪些", kpis: market ? [["已填", `${(market.products.length - noCost.length)} 台`, C.green],
+      ["还缺", `${noCost.length} 台`, noCost.length ? C.amber : C.green]] : [],
+    lines: noCost.map((p) => [p.name, p.our_price != null ? `售价 ${money(p.our_price)}` : "", imageOf.get(p.product)] as Line),
+    empty: market ? "全部都有进货价了" : "无数据（市场模块没读到）",
+    note: noCost.length ? "补：跟 bot 说「车名 进货价 ¥N」，或发进货单照片" : undefined };
   const famB: Block = { title: "车系（近 7 天）", kpis: [],
     lines: tm ? (tm.families ?? []).map((f) => [`${f.label}（${f.listings} 件）`, `浏览 ${f.new_views} · 关注 ${f.new_watchers} · 收藏率 ${pctText(f.watch_rate_pct)}`] as Line) : [],
     empty: "关注量数据还没推过来" };
@@ -217,7 +225,7 @@ export async function GET(request: NextRequest) {
     missing.length && `${missing.length} 单缺成本`, tm?.ending_7d_no_watchers && `${tm.ending_7d_no_watchers} 件快到期没人关注`].filter(Boolean) as string[];
   const verdict = todo.length ? `要人处理：${todo.join(" · ")}` : "今天没有等人处理的事";
 
-  const blocks = part === "cars" ? [trademe, watchB, famB, priceB, radarB] : [sales, ads, rankB, stockB, people];
+  const blocks = part === "cars" ? [trademe, costB, watchB, famB, priceB, radarB] : [sales, ads, rankB, stockB, people];
   for (const b of blocks) b.lines = b.lines.map(wrap);
   const photos = new Map<string, string | null>();
   const wanted = Array.from(new Set(blocks.flatMap((b) => b.lines.map((l) => l[2]).filter((u): u is string => !!u))));
