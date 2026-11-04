@@ -32,7 +32,6 @@ function MarketContent() {
   const [s, setS] = useState<MarketReport | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>("prices");
-  const [order, setOrder] = useState<"default" | "margin" | "cost">("default");
   const load = () => {
     setError(null);
     fetch("/api/market", { cache: "no-store" })
@@ -79,6 +78,7 @@ function MarketContent() {
 type Run = (body: Record<string, unknown>) => void;
 
 function Prices({ s, run }: { s: MarketReport; run: Run }) {
+  const [order, setOrder] = useState<"default" | "margin" | "cost">("default");   // owner 2026-11-05: which car earns most
   return (
     <>
       <p className="text-sm text-slate-500">

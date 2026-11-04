@@ -103,7 +103,7 @@ export async function GET(request: NextRequest) {
   // 进货价 / 售价 / 毛利 per live car (owner 2026-11-05): the market report's own numbers for the listing's product —
   // cost = the entered 进货价 (catalog_costs) at today's rate, margin = the report's estimate (after its freight guess).
   // No entered cost, or the listing isn't one of our catalogue products: 成本缺, never a guess.
-  const priceOf = new Map((market?.products ?? []).map((p) => [p.product, p]));
+  const priceOf = new Map((market?.products ?? []).map((p) => [p.product, p] as const));
   const money0 = (n: number) => `$${Math.round(n)}`;
   const costLine = (product?: string | null) => {
     const p = product ? priceOf.get(product) : undefined;
