@@ -78,6 +78,7 @@ function MarketContent() {
 type Run = (body: Record<string, unknown>) => void;
 
 function Prices({ s, run }: { s: MarketReport; run: Run }) {
+  const [order, setOrder] = useState<"default" | "margin" | "cost">("default");   // owner 2026-11-05: which car earns most
   return (
     <>
       <p className="text-sm text-slate-500">
@@ -98,8 +99,16 @@ function Prices({ s, run }: { s: MarketReport; run: Run }) {
         </Box>
       )}
       <Box title="我们 vs Bay Hobbies 和其他">
+        <div className="flex gap-2 mb-3 text-sm">
+          {([["default", "默认"], ["margin", "按预估毛利（最赚的在前）"], ["cost", "按进货价"]] as const).map(([k, label]) => (
+            <button key={k} onClick={() => setOrder(k)}
+              className={`px-3 py-1 rounded-full border ${order === k ? "bg-slate-800 text-white border-slate-800" : "border-slate-300 text-slate-600"}`}>{label}</button>
+          ))}
+        </div>
         <Table head={["车", "货号", "我们", "Bay Hobbies", "差", "进货价", "预估毛利", "其他（Trade Me / 记下的）"]}>
-          {s.products.map((p) => (
+          {(order === "default" ? s.products : [...s.products].sort((a, b) => order === "margin"
+            ? (b.margin_est_nzd ?? -1e9) - (a.margin_est_nzd ?? -1e9)
+            : (b.goods_cost_nzd ?? -1) - (a.goods_cost_nzd ?? -1))).map((p) => (
             <tr key={p.product} className="border-t border-slate-100 align-top">
               <td className="py-2 pr-3">{p.name}</td>
               <td className="pr-3 whitespace-nowrap">{p.ref ?? "—"} <span className="text-xs text-slate-400">{REF_LABELS[p.ref_status]}</span></td>
