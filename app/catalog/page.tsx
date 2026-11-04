@@ -32,6 +32,7 @@ function Catalog() {
   const [prices, setPrices] = useState<Record<string, Price>>({});
   const [status, setStatus] = useState<Record<string, Status>>({});
   const [costs, setCosts] = useState<Record<string, number | null>>({});
+  const [byCost, setByCost] = useState(false);
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
   const [canEdit, setCanEdit] = useState(false);
   const [saving, setSaving] = useState<string | null>(null);
@@ -59,8 +60,10 @@ function Catalog() {
 
   const rows = useMemo(() => {
     const s = q.trim().toLowerCase();
-    return products.filter((p) => !s || `${p.name} ${p.brand} ${p.id}`.toLowerCase().includes(s));
-  }, [products, q]);
+    const list = products.filter((p) => !s || `${p.name} ${p.brand} ${p.id}`.toLowerCase().includes(s));
+    // owner 2026-11-05: sort by the entered cost (dearest first); cars without a cost go last
+    return byCost ? [...list].sort((a, b) => (costs[b.id] ?? -1) - (costs[a.id] ?? -1)) : list;
+  }, [products, q, byCost, costs]);
 
   async function save(id: string) {
     const d = drafts[id];
@@ -113,8 +116,13 @@ function Catalog() {
             <a href="/photos" className="text-slate-500 hover:text-slate-800">上传照片</a>
           </div>
         </header>
-        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="搜车型"
-          className="w-full sm:w-80 px-3 py-2 border border-slate-300 rounded-lg text-sm" />
+        <div className="flex flex-wrap items-center gap-3">
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="搜车型"
+            className="w-full sm:w-80 px-3 py-2 border border-slate-300 rounded-lg text-sm" />
+          <label className="flex items-center gap-2 text-sm text-slate-600">
+            <input type="checkbox" checked={byCost} onChange={(e) => setByCost(e.target.checked)} /> 按进货价排（贵的在前）
+          </label>
+        </div>
         {error && <p className="text-sm text-red-600">{error}</p>}
         <div className="bg-white rounded-xl border border-slate-200 divide-y divide-slate-100">
           {rows.map((p) => {

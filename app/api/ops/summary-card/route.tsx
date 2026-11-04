@@ -56,7 +56,7 @@ async function font(text: string, weight: number) {
 }
 
 type Kpi = [string, string, string?];
-type Line = [string, string?, (string | null)?];   // left, right, photo
+type Line = [string, string?, (string | null)?, string?];   // left, right, photo, second line under the left text
 // photos only from where our cars' photos live (Trade Me's CDN, our R2 bucket), as /api/trademe/listing-card
 const photoOk = (u?: string | null) => !!u && (/^https:\/\/([\w-]+\.)*(tmcdn\.co\.nz|r2\.dev)\//.test(u) || u.startsWith("data:image/"));
 const PHOTO_W = 96, PHOTO_H = 72, ROW_PHOTO = 84;
@@ -68,14 +68,15 @@ const FS = 21, ROW1 = 40, ROW_EXTRA = 28;
 const ems = (t: string) => Array.from(t).reduce((n, ch) => n + (ch.charCodeAt(0) > 0x2e7f ? 1 : 0.6), 0);
 const leftEms = (right?: string, photo?: boolean) =>
   (W - 2 * PAD - 48 - (right ? ems(right) * FS + 16 : 0) - (photo ? PHOTO_W + 14 : 0)) / FS;
-function wrap([l, r, p]: Line): Line {
-  const ph = photoOk(p) ? p : null, room = leftEms(r, !!ph) * 1.8;
-  if (ems(l) <= room) return [l, r, ph];
+function wrap([l, r, p, sub]: Line): Line {
+  // with a second line the name gets one line only
+  const ph = photoOk(p) ? p : null, room = leftEms(r, !!ph) * (sub ? 0.95 : 1.8);
+  if (ems(l) <= room) return [l, r, ph, sub];
   let out = "", n = 0;
   for (const ch of Array.from(l)) { n += ems(ch); if (n > room) break; out += ch; }
-  return [out + "…", r, ph];
+  return [out + "…", r, ph, sub];
 }
-const rowH = ([l, r, p]: Line) => (p ? ROW_PHOTO : ems(l) > leftEms(r) * 0.9 ? ROW1 + ROW_EXTRA : ROW1);
+const rowH = ([l, r, p, sub]: Line) => (sub ? ROW_PHOTO + 6 : p ? ROW_PHOTO : ems(l) > leftEms(r) * 0.9 ? ROW1 + ROW_EXTRA : ROW1);
 const carName = (c: CarRef & { title: string }) => c.label || c.title;
 
 // A photo that can't be fetched would fail the whole picture, so every photo is fetched first (a few seconds at most) and
@@ -99,6 +100,17 @@ export async function GET(request: NextRequest) {
   const [books, stock, snap, market, catalogue] = await Promise.all([loadBooks(), loadStockReport(), getKvClient().get("ops:metrics"),
     loadMarketReport().catch(() => null), loadProducts().catch(() => [])]);
   const imageOf = new Map(catalogue.map((p) => [p.id, p.image ?? null]));
+  // 进货价 / 售价 / 毛利 per live car (owner 2026-11-05): the market report's own numbers for the listing's product —
+  // cost = the entered 进货价 (catalog_costs) at today's rate, margin = the report's estimate (after its freight guess).
+  // No entered cost, or the listing isn't one of our catalogue products: 成本缺, never a guess.
+  const priceOf = new Map((market?.products ?? []).map((p) => [p.product, p]));
+  const money0 = (n: number) => `$${Math.round(n)}`;
+  const costLine = (product?: string | null) => {
+    const p = product ? priceOf.get(product) : undefined;
+    const sale = p?.our_price != null ? `售价 ${money0(p.our_price)}` : null;
+    if (!p || p.cost_cny == null || p.goods_cost_nzd == null) return ["成本缺", sale].filter(Boolean).join(" · ");
+    return [`进货 ${money0(p.goods_cost_nzd)}`, sale, p.margin_est_nzd != null ? `毛利 ${money0(p.margin_est_nzd)}` : null].filter(Boolean).join(" · ");
+  };
   const s = (snap ?? {}) as Snap;
   const now = new Date();
   const today = nzDate(now), month = today.slice(0, 7);
@@ -140,7 +152,8 @@ export async function GET(request: NextRequest) {
   const pctText = (v: number | null | undefined) => (v == null ? "—" : `${v}%`);
   // every live listing (owner 2026-11-03 "trademe 的 33 个没有啊"), most watched first; the snapshot carries all of them
   const watchB: Block = { title: `在架的每一台（${tm?.watch_top?.length ?? 0} 件，按关注排）`, kpis: [],
-    lines: tm ? (tm.watch_top ?? []).map((b) => [carName(b), `浏览 ${b.views} · 关注 ${b.watchers} · 收藏率 ${pctText(b.watch_rate_pct)}`, b.photo] as Line) : [],
+    lines: tm ? (tm.watch_top ?? []).map((b) => [carName(b), `浏览 ${b.views} · 关注 ${b.watchers} · 收藏率 ${pctText(b.watch_rate_pct)}`, b.photo,
+      costLine(b.product)] as Line) : [],
     empty: "关注量数据还没推过来" };
   const famB: Block = { title: "车系（近 7 天）", kpis: [],
     lines: tm ? (tm.families ?? []).map((f) => [`${f.label}（${f.listings} 件）`, `浏览 ${f.new_views} · 关注 ${f.new_watchers} · 收藏率 ${pctText(f.watch_rate_pct)}`] as Line) : [],
@@ -207,7 +220,7 @@ export async function GET(request: NextRequest) {
   const photos = new Map<string, string | null>();
   const wanted = Array.from(new Set(blocks.flatMap((b) => b.lines.map((l) => l[2]).filter((u): u is string => !!u))));
   await Promise.all(wanted.map(async (u) => photos.set(u, await inline(u))));
-  for (const b of blocks) b.lines = b.lines.map(([l, r, p]) => wrap([l, r, p ? photos.get(p) ?? null : null]));
+  for (const b of blocks) b.lines = b.lines.map(([l, r, p, sub]) => wrap([l, r, p ? photos.get(p) ?? null : null, sub]));
   const blockH = (b: Block) => 56 + (b.kpis.length ? 112 : 0) + (b.lines.length ? b.lines.reduce((h, l) => h + rowH(l), 0) : b.empty ? ROW1 : 0)
     + (b.note ? 34 : 0) + 36;
   const height = () => PAD + 100 + 90 + blocks.reduce((h, b) => h + blockH(b) + 20, 0) + 80 + PAD;
@@ -227,7 +240,7 @@ export async function GET(request: NextRequest) {
     ? "数字和账本网页一样：Trade Me 和关注量看「运营」，比价和雷达看「市场」。照片是 Trade Me 刊登的第一张（比价用网站的主图）。"
     : "数字和账本网页一样：销售看「账本」，库存看「库存」，广告和排名看「运营」。车的表现在第 ② 张。常用问法和审批口令：跟 bot 说「能做什么」。";
   const allText = [title, sub, verdict, footer,
-    ...blocks.flatMap((b) => [b.title, b.empty ?? "", b.note ?? "", ...b.kpis.flatMap((k) => [k[0], k[1]]), ...b.lines.flatMap((l) => [l[0], l[1] ?? ""])]),
+    ...blocks.flatMap((b) => [b.title, b.empty ?? "", b.note ?? "", ...b.kpis.flatMap((k) => [k[0], k[1]]), ...b.lines.flatMap((l) => [l[0], l[1] ?? "", l[3] ?? ""])]),
     "0123456789$.,%−—·（）/：…「」+↑↓→ "].join("");
   const [regular, bold] = await Promise.all([font(allText, 400), font(allText, 700)]);
   const box = { display: "flex", flexDirection: "column" as const, background: C.card, borderRadius: 16, padding: "18px 24px" };
@@ -253,13 +266,18 @@ export async function GET(request: NextRequest) {
                 ))}
               </div>
             )}
-            {b.lines.map(([l, r, p], i) => (
-              <div key={i} style={{ display: "flex", height: rowH([l, r, p]), alignItems: "center", fontSize: FS, lineHeight: `${ROW_EXTRA}px`, borderTop: `1px solid ${C.line}` }}>
+            {b.lines.map(([l, r, p, sub], i) => (
+              <div key={i} style={{ display: "flex", height: rowH([l, r, p, sub]), alignItems: "center", fontSize: FS, lineHeight: `${ROW_EXTRA}px`, borderTop: `1px solid ${C.line}` }}>
                 {p ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img src={p} width={PHOTO_W} height={PHOTO_H} style={{ objectFit: "cover", borderRadius: 8, marginRight: 14 }} alt="" />
                 ) : null}
-                <div style={{ flex: 1, display: "flex" }}>{l}</div>
+                {sub ? (
+                  <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
+                    <div style={{ display: "flex" }}>{l}</div>
+                    <div style={{ display: "flex", fontSize: 19, color: sub.startsWith("成本缺") ? C.amber : C.green, marginTop: 2 }}>{sub}</div>
+                  </div>
+                ) : <div style={{ flex: 1, display: "flex" }}>{l}</div>}
                 {r ? <div style={{ color: C.muted, marginLeft: 16, whiteSpace: "nowrap" }}>{r}</div> : null}
               </div>
             ))}
