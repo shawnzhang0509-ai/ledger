@@ -162,7 +162,9 @@ export async function GET(request: NextRequest) {
   const noCost = (market?.products ?? []).filter((p) => p.cost_cny == null);
   const costB: Block = { title: "进货价还缺哪些", kpis: market ? [["已填", `${(market.products.length - noCost.length)} 台`, C.green],
       ["还缺", `${noCost.length} 台`, noCost.length ? C.amber : C.green]] : [],
-    lines: noCost.map((p) => [p.name, p.our_price != null ? `售价 ${money(p.our_price)}` : "", imageOf.get(p.product)] as Line),
+    // names only, three to a row: the cars picture is already near WeChat's height limit
+    lines: Array.from({ length: Math.ceil(noCost.length / 3) }, (_, i) => [noCost.slice(i * 3, i * 3 + 3)
+      .map((p) => p.name.replace(/^(NOREV|Sun Star|KK Scale|WERK83|Quartzo)\s+/i, "")).join("  ·  ")] as Line),
     empty: market ? "全部都有进货价了" : "无数据（市场模块没读到）",
     note: noCost.length ? "补：跟 bot 说「车名 进货价 ¥N」，或发进货单照片" : undefined };
   const famB: Block = { title: "车系（近 7 天）", kpis: [],
