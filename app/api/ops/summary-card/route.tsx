@@ -101,14 +101,16 @@ export async function GET(request: NextRequest) {
     loadMarketReport().catch(() => null), loadProducts().catch(() => [])]);
   const imageOf = new Map(catalogue.map((p) => [p.id, p.image ?? null]));
   // 进货价 / 售价 / 毛利 per live car (owner 2026-11-05): the market report's own numbers for the listing's product —
-  // cost = the entered 进货价 (catalog_costs) at today's rate, margin = the report's estimate (after its freight guess).
-  // No entered cost, or the listing isn't one of our catalogue products: 成本缺, never a guess.
+  // cost = the report's goods cost (entered 进货价, else the RMB in the photo folder name) at today's rate, margin = the
+  // report's estimate (after its freight guess). Neither, or the listing isn't one of our catalogue products: 成本缺.
   const priceOf = new Map((market?.products ?? []).map((p) => [p.product, p] as const));
   const money0 = (n: number) => `$${Math.round(n)}`;
   const costLine = (product?: string | null) => {
     const p = product ? priceOf.get(product) : undefined;
     const sale = p?.our_price != null ? `售价 ${money0(p.our_price)}` : null;
-    if (!p || p.cost_cny == null || p.goods_cost_nzd == null) return ["成本缺", sale].filter(Boolean).join(" · ");
+    // owner 2026-11-05 "带成本的你搞不定吗": use every cost the report has — the entered one, else the RMB the team wrote
+    // in the photo folder name (the report's own fallback); only cars with neither show 成本缺
+    if (!p || p.goods_cost_nzd == null) return ["成本缺", sale].filter(Boolean).join(" · ");
     return [`进货 ${money0(p.goods_cost_nzd)}`, sale, p.margin_est_nzd != null ? `毛利 ${money0(p.margin_est_nzd)}` : null].filter(Boolean).join(" · ");
   };
   const s = (snap ?? {}) as Snap;
