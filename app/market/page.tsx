@@ -81,7 +81,7 @@ function Prices({ s, run }: { s: MarketReport; run: Run }) {
   return (
     <>
       <p className="text-sm text-slate-500">
-        Bay Hobbies 看于 {nzTime(s.bayhobbies_seen)} · 同款 = 同一货号，同车型 = 同一款车别的颜色 · 差 = 我们比 Bay Hobbies 贵多少
+        Bay Hobbies 看于 {nzTime(s.bayhobbies_seen)} · 毛利 = 我们 − 进货价×汇率 − ${s.freight_est_nzd} 运费估计 ·同款 = 同一货号，同车型 = 同一款车别的颜色 · 差 = 我们比 Bay Hobbies 贵多少
       </p>
       {s.unchecked_prices.length > 0 && (
         <Box title={`bot 找到、还没人核对的价格（${s.unchecked_prices.length}）`} tone="amber">
@@ -98,7 +98,7 @@ function Prices({ s, run }: { s: MarketReport; run: Run }) {
         </Box>
       )}
       <Box title="我们 vs Bay Hobbies 和其他">
-        <Table head={["车", "货号", "我们", "Bay Hobbies", "差", "进货价", "其他（Trade Me / 记下的）"]}>
+        <Table head={["车", "货号", "我们", "Bay Hobbies", "差", "进货价", "预估毛利", "其他（Trade Me / 记下的）"]}>
           {s.products.map((p) => (
             <tr key={p.product} className="border-t border-slate-100 align-top">
               <td className="py-2 pr-3">{p.name}</td>
@@ -109,7 +109,10 @@ function Prices({ s, run }: { s: MarketReport; run: Run }) {
                   {nz(p.bayhobbies.price)} <span className="text-xs text-slate-500">{p.bayhobbies.match === "ref" ? "同款" : "同车型"}</span></a>) : "—"}</td>
               <td className={`pr-3 font-semibold ${(p.vs_bayhobbies_pct ?? 0) > 15 ? "text-red-600" : "text-emerald-600"}`}>
                 {p.vs_bayhobbies_pct == null ? "—" : `${p.vs_bayhobbies_pct > 0 ? "+" : ""}${p.vs_bayhobbies_pct}%`}</td>
-              <td className="pr-3 text-slate-500">{nz(p.goods_cost_nzd)}</td>
+              <td className="pr-3 whitespace-nowrap text-slate-500">{nz(p.goods_cost_nzd)}{" "}
+                <button onClick={() => { const cny = prompt("进货价（人民币，留空 = 清除）", p.cost_cny != null ? String(p.cost_cny) : ""); if (cny !== null) run({ action: "cost", product_id: p.product, cny: cny.trim() }); }}
+                  className="text-blue-600 hover:underline">{p.cost_cny != null ? `¥${p.cost_cny}` : "填"}</button></td>
+              <td className={`pr-3 ${p.margin_est_nzd != null && p.margin_est_nzd < 0 ? "text-red-600" : "text-slate-500"}`}>{nz(p.margin_est_nzd)}</td>
               <td className="text-xs">
                 {p.others.map((o) => (
                   <a key={o.kind + o.id} href={o.url} target="_blank" rel="noreferrer" className="block text-blue-600 hover:underline">

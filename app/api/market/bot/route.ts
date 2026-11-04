@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { addPrice, addRadar, addRef, loadMarketRows, replaceSeen, setPriceStatus, setRadar } from "@/lib/market-db";
+import { setCatalogCost } from "@/lib/db";
 import { pushTokenMatches, sessionRole } from "@/lib/session";
 
 // Writes to the market records, from the bots (driftae-ops `dt market …`, Bearer METRICS_PUSH_TOKEN, `by` = who asked)
@@ -74,11 +75,17 @@ export async function POST(request: NextRequest) {
       if (cny == null || cny <= 0) return bad("Need cny");
       return (await setRadar(String(b.id ?? ""), { supplier_cny: cny, supplier_url: s(b.url, 1000) }, by)) ? NextResponse.json({ success: true }) : bad("No such candidate", 404);
     }
+    case "cost": {
+      const cny = b.cny === null || b.cny === "" ? null : num(b.cny);
+      if (!ID.test(String(b.product_id ?? "")) || (cny != null && (cny <= 0 || cny > 100000)) || (b.cny != null && b.cny !== "" && cny == null)) return bad("Need product_id and cny (or empty to clear)");
+      await setCatalogCost(b.product_id, cny, by);
+      return NextResponse.json({ success: true });
+    }
     case "radar-status": {
       if (!["kept", "dropped"].includes(b.status)) return bad("status kept|dropped");
       return (await setRadar(String(b.id ?? ""), { status: b.status, why: s(b.why, 300) }, by)) ? NextResponse.json({ success: true }) : bad("No such candidate", 404);
     }
     default:
-      return bad("action: ref | price | price-status | seen | radar | radar-cost | radar-status");
+      return bad("action: ref | price | price-status | seen | radar | radar-cost | cost | radar-status");
   }
 }
