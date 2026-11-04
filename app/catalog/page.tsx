@@ -31,6 +31,7 @@ function Catalog() {
   const [products, setProducts] = useState<Product[]>([]);
   const [prices, setPrices] = useState<Record<string, Price>>({});
   const [status, setStatus] = useState<Record<string, Status>>({});
+  const [costs, setCosts] = useState<Record<string, number | null>>({});
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
   const [canEdit, setCanEdit] = useState(false);
   const [saving, setSaving] = useState<string | null>(null);
@@ -47,6 +48,7 @@ function Catalog() {
     setProducts(p);
     setPrices(Object.fromEntries(c.prices.map((x: Price) => [x.product_id, x])));
     setStatus(Object.fromEntries(c.status.map((x: Status) => [x.product_id, x])));
+    setCosts(Object.fromEntries((c.costs ?? []).map((x: { product_id: string; cost_cny: number | null }) => [x.product_id, x.cost_cny])));
     setCanEdit(Boolean(a.role));
     setDrafts(Object.fromEntries(p.map((x: Product) => {
       const pr = c.prices.find((y: Price) => y.product_id === x.id);
@@ -75,6 +77,16 @@ function Catalog() {
     }
     setSaved(id);
     setTimeout(() => setSaved(null), 2000);
+    load();
+  }
+
+  async function editCost(id: string) {
+    const v = prompt("进货价（人民币，留空 = 清除）", costs[id] != null ? String(costs[id]) : "");
+    if (v === null) return;
+    const res = await fetch("/api/market/bot", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "cost", product_id: id, cny: v.trim() }),
+    });
+    if (!res.ok) { setError((await res.json().catch(() => ({}))).error ?? "保存失败"); return; }
     load();
   }
 
@@ -120,6 +132,9 @@ function Catalog() {
                         href={`https://www.trademe.co.nz/a/listing/${st.listing_id}`}>Trade Me{st.tm_price ? ` $${st.tm_price}` : ""}</a></>
                     )}
                     {st?.message && st.state !== "listed" && <span className="text-slate-500"> · {st.message}</span>}
+                    <> · 进货价 {canEdit ? (
+                      <button onClick={() => editCost(p.id)} className="text-blue-700 hover:underline">{costs[p.id] != null ? `¥${costs[p.id]}` : "填"}</button>
+                    ) : (costs[p.id] != null ? `¥${costs[p.id]}` : "—")}</>
                   </div>
                   <input value={d.title} disabled={!canEdit} onChange={(e) => set(p.id, { title: e.target.value })} maxLength={80}
                     placeholder={st?.title ? `Trade Me 标题：${st.title}` : "Trade Me 标题（留空自动生成）"}

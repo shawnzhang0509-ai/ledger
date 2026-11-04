@@ -144,13 +144,17 @@ async function ensureCatalog(sql: NonNullable<ReturnType<typeof client>>) {
   await sql`CREATE TABLE IF NOT EXISTS catalog_prices (
     product_id text PRIMARY KEY, price numeric(10,2), list_on_trademe boolean NOT NULL DEFAULT false,
     title text, updated_at timestamptz NOT NULL DEFAULT now(), updated_by text NOT NULL)`;
+  await sql`CREATE TABLE IF NOT EXISTS catalog_costs (
+    product_id text PRIMARY KEY, cost_cny numeric(10,2), updated_at timestamptz NOT NULL DEFAULT now(), updated_by text NOT NULL)`;
   await sql`CREATE TABLE IF NOT EXISTS catalog_status (
     product_id text PRIMARY KEY, state text NOT NULL, listing_id bigint, tm_price numeric(10,2),
     message text, title text, at text NOT NULL)`;
   catalogReady = true;
 }
 
-export async function catalogData(): Promise<{ prices: CatalogPrice[]; status: CatalogStatus[] }> {
+export type CatalogCost = { product_id: string; cost_cny: number | null };
+
+export async function catalogData(): Promise<{ prices: CatalogPrice[]; status: CatalogStatus[]; costs: CatalogCost[] }> {
   const sql = client();
   if (!sql) throw new Error("DATABASE_NOT_CONFIGURED");
   await ensureCatalog(sql);
@@ -159,7 +163,17 @@ export async function catalogData(): Promise<{ prices: CatalogPrice[]; status: C
     FROM catalog_prices`;
   const status = await sql`SELECT product_id, state, listing_id::text AS listing_id, tm_price::float AS tm_price, message, title, at
     FROM catalog_status`;
-  return { prices: prices as CatalogPrice[], status: status as CatalogStatus[] };
+  const costs = await sql`SELECT product_id, cost_cny::float AS cost_cny FROM catalog_costs`;
+  return { prices: prices as CatalogPrice[], status: status as CatalogStatus[], costs: costs as CatalogCost[] };
+}
+
+export async function setCatalogCost(productId: string, costCny: number | null, by: string) {
+  const sql = client();
+  if (!sql) throw new Error("DATABASE_NOT_CONFIGURED");
+  await ensureCatalog(sql);
+  await sql`INSERT INTO catalog_costs (product_id, cost_cny, updated_by, updated_at)
+            VALUES (${productId}, ${costCny}, ${by}, now())
+            ON CONFLICT (product_id) DO UPDATE SET cost_cny = EXCLUDED.cost_cny, updated_by = EXCLUDED.updated_by, updated_at = now()`;
 }
 
 export async function setCatalogPrice(p: Omit<CatalogPrice, "updated_at">) {

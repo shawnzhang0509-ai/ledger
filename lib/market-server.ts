@@ -27,5 +27,7 @@ export async function loadMarketReport() {
   const ours: Record<string, OurPrice> = {};
   for (const s of cat.status) if (s.tm_price) ours[s.product_id] = { price: Number(s.tm_price), from: "trademe" };
   for (const p of cat.prices) if (p.price != null) ours[p.product_id] = { price: Number(p.price), from: "catalog" };
-  return marketReport({ products, ours, ...rows, demand: demand ?? null, nzdPerCny: cny });
+  const costs: Record<string, number> = {};
+  for (const c of cat.costs) if (c.cost_cny != null) costs[c.product_id] = Number(c.cost_cny);
+  return marketReport({ products, ours, ...rows, demand: demand ?? null, nzdPerCny: cny, costs });
 }
