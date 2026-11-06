@@ -3,9 +3,8 @@ import { pushTokenMatches } from "@/lib/session";
 
 // WeChat's media CDN from the bots' server (DigitalOcean Sydney): IPv4 never connects and 150 KB takes 30 s over IPv6,
 // so pictures fail however small they are (2026-11-06). The server sends its already encrypted upload here and this
-// function, in Hong Kong, passes it on. Only that CDN's upload path; the key to the picture never comes through here.
+// function passes it on, in 2 s. Only that CDN's upload path; the key to the picture never comes through here.
 export const dynamic = "force-dynamic";
-export const preferredRegion = "hkg1";
 export const maxDuration = 60;
 
 const HOST = "novac2c.cdn.weixin.qq.com";
