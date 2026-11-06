@@ -232,8 +232,8 @@ export async function GET(request: NextRequest) {
   const title = part === "cars" ? "DRIFTAE 在售" : "DRIFTAE 运营总览";
   const sub = `截至 ${nzTime(now.toISOString())}` + (s.built ? ` · 广告/Trade Me 数据 ${nzTime(s.built)}` : "");
   const footer = part === "cars"
-    ? "数字和账本网页一样，看「运营」。照片是 Trade Me 刊登的第一张。比价、新品、哪类车好卖、新上架怎么样、没人关注：各问各的。"
-    : "数字和账本网页一样：细节各问各的：账本、库存、广告、排名、分账。车看「在售」。常用问法和审批口令：跟 bot 说「能做什么」。";
+    ? "数字和账本网页一样，看「运营」。照片是 Trade Me 刊登的第一张。比价、该进什么车、新上架怎么样、没人关注：各问各的。"
+    : "这是摘要。要看明细就说：账本、库存、广告、排名、分账、在售。全部指令：说「指令」。";
   const allText = [title, sub, verdict, footer,
     ...blocks.flatMap((b) => [b.title, b.empty ?? "", b.note ?? "", ...b.kpis.flatMap((k) => [k[0], k[1]]), ...b.lines.flatMap((l) => [l[0], l[1] ?? "", l[3] ?? ""])]),
     "0123456789$.,%−—·（）/：…「」+↑↓→ "].join("");
