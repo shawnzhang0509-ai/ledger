@@ -10,9 +10,10 @@ export const dynamic = "force-dynamic";
 
 type Item = { name: string; when?: string; say?: string; code?: string; status?: string; line?: string; tag?: string; tone?: "amber" | "green" | "muted" };
 type Cat = { label: string; items: Item[]; empty?: string };
-type Body = { cats: Cat[]; page?: string; title?: string; sub?: string };
+type Body = { cats: Cat[]; page?: string; title?: string; sub?: string; grid?: boolean };
 
 const W = 1080, PAD = 44, ROW = 74, HEAD = 66;
+const G_ROW = 46, G_HEAD = 52;   // grid: two short phrases per row, so every command fits one picture (owner 2026-11-06)
 const C = { bg: "#111318", card: "#1b1f27", text: "#f0f2f5", muted: "#9aa3ae", amber: "#f3ba4e", green: "#58ca84", line: "#2a2f39" };
 const TONE = ["#6bb8fd", "#8f9bff", "#58ca84", "#f3ba4e", "#9aa3ae"];
 
@@ -40,7 +41,10 @@ export async function POST(request: NextRequest) {
   const title = b.title || "团队的 bot 能做什么";
   const sub = b.sub || "三个人的 bot 一样 · 定时消息三人同发 · 回「词 码」才执行";
   const n = cats.reduce((s, c) => s + (c.items.length || 1), 0);
-  const H = PAD + 110 + cats.length * (HEAD + 20) + n * ROW + (b.page ? 60 : 0) + PAD;
+  const pairs = (items: Item[]) => Array.from({ length: Math.ceil(items.length / 2) }, (_, i) => items.slice(i * 2, i * 2 + 2));
+  const H = b.grid
+    ? PAD + 110 + cats.reduce((h, c) => h + G_HEAD + 8 + 14 + pairs(c.items).length * G_ROW, 0) + PAD
+    : PAD + 110 + cats.length * (HEAD + 20) + n * ROW + (b.page ? 60 : 0) + PAD;
   const line = (i: Item) => i.line ?? (i.say ? `说：「${i.say}」` : i.when ?? "");
   const tag = (i: Item) => i.tag ?? (i.code ? `回「${i.code} 码」` : "");
   const toneOf = (i: Item) => (i.tone === "green" ? C.green : i.tone === "muted" ? C.muted : C.amber);
@@ -54,7 +58,21 @@ export async function POST(request: NextRequest) {
           <div style={{ fontSize: 44, fontWeight: 700 }}>{title}</div>
           <div style={{ fontSize: 20, color: C.muted, marginTop: 6 }}>{sub}</div>
         </div>
-        {cats.map((c, ci) => (
+        {b.grid ? cats.map((c, ci) => (
+          <div key={c.label} style={{ display: "flex", flexDirection: "column", background: C.card, borderRadius: 14, padding: "0 20px 8px", marginBottom: 14 }}>
+            <div style={{ display: "flex", alignItems: "center", height: G_HEAD, fontSize: 26, fontWeight: 700, color: TONE[ci % TONE.length] }}>{c.label}</div>
+            {pairs(c.items).map((pair, ri) => (
+              <div key={ri} style={{ display: "flex", height: G_ROW, borderTop: `1px solid ${C.line}` }}>
+                {[0, 1].map((k) => (
+                  <div key={k} style={{ display: "flex", alignItems: "center", width: "50%", paddingRight: 12, overflow: "hidden" }}>
+                    {pair[k] ? <div style={{ display: "flex", flex: 1, fontSize: 25, whiteSpace: "nowrap", overflow: "hidden" }}>{pair[k].name}</div> : null}
+                    {pair[k]?.tag ? <div style={{ display: "flex", fontSize: 19, color: C.amber, border: `1px solid ${C.amber}`, borderRadius: 999, padding: "1px 10px", marginLeft: 6 }}>{pair[k].tag}</div> : null}
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
+        )) : cats.map((c, ci) => (
           <div key={c.label} style={{ display: "flex", flexDirection: "column", background: C.card, borderRadius: 16, padding: "0 24px", marginBottom: 20 }}>
             <div style={{ display: "flex", alignItems: "center", height: HEAD, fontSize: 26, fontWeight: 700, color: TONE[ci % TONE.length] }}>{c.label}</div>
             {c.items.map((i) => (
@@ -73,7 +91,7 @@ export async function POST(request: NextRequest) {
             ) : null}
           </div>
         ))}
-        {b.page ? <div style={{ fontSize: 20, color: C.muted, marginTop: 8 }}>{`详细说明：${b.page}`}</div> : null}
+        {b.page && !b.grid ? <div style={{ fontSize: 20, color: C.muted, marginTop: 8 }}>{`详细说明：${b.page}`}</div> : null}
       </div>
     ),
     { width: W, height: H, fonts: [{ name: "NotoSC", data: regular, weight: 400 }, { name: "NotoSC", data: bold, weight: 700 }] },

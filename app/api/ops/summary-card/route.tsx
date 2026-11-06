@@ -43,7 +43,7 @@ type Snap = {
   sync_stuck?: number;   // commits the server couldn't push: driftae-sync has been failing (dt dashboard)
 };
 
-const W = 1080, PAD = 44, MAX_H = 6000;   // WeChat squashes taller images until they can't be read
+const W = 1080, PAD = 44, MAX_H = 12000;   // dt cuts the card into small pictures for WeChat, so this only guards rendering (6000 dropped 14 of 46 cars)
 const C = { bg: "#111318", card: "#1b1f27", text: "#f0f2f5", muted: "#9aa3ae", green: "#58ca84", red: "#e86060", amber: "#f3ba4e", line: "#2a2f39" };
 const money = (n: number) => `${n < 0 ? "−" : ""}$${Math.abs(n).toLocaleString("en-NZ", { maximumFractionDigits: 0 })}`;
 const nzTime = (iso: string) =>
@@ -244,7 +244,7 @@ export async function GET(request: NextRequest) {
     if (b.lines.length <= 3) break;
     b.lines = b.lines.slice(0, -1);
     b.cut = (b.cut ?? 0) + 1;
-    b.note = `还有 ${b.cut} 件放不下（图太长微信会压糊），在账本「运营」页看全。`;
+    b.note = `还有 ${b.cut} 件放不下，在账本「运营」页看全。`;
   }
   const H = height();
 
