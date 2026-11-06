@@ -144,14 +144,9 @@ export async function GET(request: NextRequest) {
 
   // Trade Me
   const tm = s.tm_summary;
-  // the same listing's price on the 新上架 / 没人关注 rows, so they carry the cost line too (owner 2026-11-06)
-  const listedOf = new Map((tm?.watch_top ?? []).map((b) => [b.title, b.price] as const));
   const trademe: Block = { title: "Trade Me", kpis: tm ? [["在架", `${tm.live} 件`], ["7 天新浏览", `${tm.new_views}`], ["7 天新关注", `${tm.new_watchers}`, C.green],
       ["快到期没人关注", `${tm.ending_7d_no_watchers}`, tm.ending_7d_no_watchers ? C.amber : undefined]] : [],
-    lines: tm ? [
-      ...tm.new.slice(0, 3).map((n) => [`新上架 ${carName(n)}`, `${n.days_live} 天 · 浏览 ${n.views} · 关注 ${n.watchers}`, n.photo, costLine(n.product, listedOf.get(n.title))] as Line),
-      ...tm.slow.slice(0, 2).map((b) => [`没人关注 ${carName(b)}`, `${b.days_on_trademe} 天 · 浏览 ${b.views}`, b.photo, costLine(b.product, listedOf.get(b.title))] as Line),
-    ] : [], empty: "Trade Me 数据还没推过来" };
+    lines: [], empty: tm ? undefined : "Trade Me 数据还没推过来" };
 
   // 关注量: the numbers `trademe stats` wrote into the snapshot (listings.json), shown as they are
   const pctText = (v: number | null | undefined) => (v == null ? "—" : `${v}%`);
@@ -201,7 +196,7 @@ export async function GET(request: NextRequest) {
   const verdict = part === "cars" ? (carTodo.length ? `要人处理：${carTodo[0]}` : "在售的车今天没有要处理的")
     : todo.length ? `要人处理：${todo.join(" · ")}` : "今天没有等人处理的事";
 
-  // one command, one set of pictures (owner 2026-11-06): 比价, 新品 and 哪类车好卖 are their own cards
+  // one command, one set of pictures (owner 2026-11-06): 比价, 新品, 哪类车好卖, 新上架 and 没人关注 are their own cards
   const blocks = part === "cars" ? [trademe, watchB, costB] : [sales, ads, rankB, stockB, people];
   for (const b of blocks) b.lines = b.lines.map(wrap);
   const photos = new Map<string, string | null>();
@@ -224,7 +219,7 @@ export async function GET(request: NextRequest) {
   const title = part === "cars" ? "DRIFTAE 在售" : "DRIFTAE 运营总览";
   const sub = `截至 ${nzTime(now.toISOString())}` + (s.built ? ` · 广告/Trade Me 数据 ${nzTime(s.built)}` : "");
   const footer = part === "cars"
-    ? "数字和账本网页一样，看「运营」。照片是 Trade Me 刊登的第一张。比价、新品、哪类车好卖：各问各的。"
+    ? "数字和账本网页一样，看「运营」。照片是 Trade Me 刊登的第一张。比价、新品、哪类车好卖、新上架怎么样、没人关注：各问各的。"
     : "数字和账本网页一样：销售看「账本」，库存看「库存」，广告和排名看「运营」。车看「在售」。常用问法和审批口令：跟 bot 说「能做什么」。";
   const allText = [title, sub, verdict, footer,
     ...blocks.flatMap((b) => [b.title, b.empty ?? "", b.note ?? "", ...b.kpis.flatMap((k) => [k[0], k[1]]), ...b.lines.flatMap((l) => [l[0], l[1] ?? "", l[3] ?? ""])]),
