@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { loadBooks } from "@/lib/books-server";
-import { addSplitEntry, loadSplitEntries, voidSplitEntry } from "@/lib/split-db";
-import { KINDS, Kind, PEOPLE, Person, splitReport } from "@/lib/split";
+import { addSplitEntry, voidSplitEntry } from "@/lib/split-db";
+import { loadSplitReport } from "@/lib/split-server";
+import { KINDS, Kind, PEOPLE, Person } from "@/lib/split";
 import { nzdPerCny } from "@/lib/market-server";
 import { nzDate } from "@/lib/stock";
 import { pushTokenMatches, sessionRole } from "@/lib/session";
@@ -15,11 +15,7 @@ const isPerson = (v: unknown): v is Person => typeof v === "string" && v in PEOP
 
 export async function GET(request: NextRequest) {
   if (!sessionRole(request) && !pushTokenMatches(request.headers.get("authorization"))) return bad("Unauthorized", 401);
-  const [rows, books] = await Promise.all([loadSplitEntries(), loadBooks()]);
-  const lines = books.lines.filter((l) => l.status !== "Cancelled");
-  const salesIn = lines.reduce((t, l) => t + l.price + l.shipping - l.fee, 0);
-  const costs = lines.reduce((t, l) => t + l.purchase + l.air + l.courier, 0);
-  return NextResponse.json(splitReport(rows, salesIn, costs));
+  return NextResponse.json(await loadSplitReport());
 }
 
 export async function POST(request: NextRequest) {
