@@ -5,6 +5,7 @@ import { loadBooks, loadStockReport } from "@/lib/books-server";
 import { nzDate } from "@/lib/stock";
 import { loadMarketReport } from "@/lib/market-server";
 import { FREIGHT_EST_NZD } from "@/lib/market";
+import { loadSplitReport } from "@/lib/split-server";
 import type { AdRace } from "@/lib/ad-race";
 import { isAuthenticated, pushTokenMatches } from "@/lib/session";
 
@@ -40,6 +41,8 @@ type Snap = {
     off_trademe?: string[];   // words whose car wasn't on Trade Me when measured (ended, not relisted yet): not a drop
     best: { q: string; rank: number; car: string | null }[] } | null;
   pending_codes?: { verb: string; what: string; to: string; hours_left: number }[];
+  site_7d?: { visitors: number; pageviews: number };
+  mail_unread?: number;
   sync_stuck?: number;   // commits the server couldn't push: driftae-sync has been failing (dt dashboard)
 };
 
@@ -189,6 +192,16 @@ export async function GET(request: NextRequest) {
       ["等码的卡", `${codes.length}`, codes.length ? C.amber : C.green], ["账本要核对", `${flagged.length} 单`, flagged.length ? C.amber : undefined]],
     lines: codes.slice(0, 4).map((c) => [`等「${c.verb}」${c.what}`, `还剩 ${c.hours_left} 小时`] as Line) };
 
+  // one line each (owner 2026-11-06): the detail is on 分账, or when you say 网站 / 邮件
+  const split = part === "business" ? await loadSplitReport().catch(() => null) : null;
+  const holds = (split?.people ?? []).filter((p) => p.balance).map((p) => (p.balance < 0 ? `${p.name}手上有 ${money(-p.balance)}` : `公司欠${p.name} ${money(p.balance)}`));
+  const moreB: Block = { title: "网站 · 邮件 · 分账", kpis: [], lines: [
+    ["网站近 7 天", s.site_7d ? `${s.site_7d.visitors} 人 · ${s.site_7d.pageviews} 次浏览` : "—"],
+    ["没读的邮件", s.mail_unread != null ? `${s.mail_unread} 封` : "—"],
+    ["分账", split ? holds.join(" · ") || "两清" : "—"],
+    ...(split?.costs_unnamed ? [["成本没写明谁付", money(split.costs_unnamed)] as Line] : []),
+  ] };
+
   // 一句话结论
   const todo = [s.sync_stuck && `服务器同步卡住了（找 Claude）`, waitingCustomers && `${waitingCustomers} 位客人等回复`, codes.length && `${codes.length} 张卡等码`,
     missing.length && `${missing.length} 单缺成本`, tm?.ending_7d_no_watchers && `${tm.ending_7d_no_watchers} 件快到期没人关注`].filter(Boolean) as string[];
@@ -197,7 +210,7 @@ export async function GET(request: NextRequest) {
     : todo.length ? `要人处理：${todo.join(" · ")}` : "今天没有等人处理的事";
 
   // one command, one set of pictures (owner 2026-11-06): 比价, 新品, 哪类车好卖, 新上架 and 没人关注 are their own cards
-  const blocks = part === "cars" ? [trademe, watchB, costB] : [sales, ads, rankB, stockB, people];
+  const blocks = part === "cars" ? [trademe, watchB, costB] : [sales, ads, rankB, stockB, people, moreB];
   for (const b of blocks) b.lines = b.lines.map(wrap);
   const photos = new Map<string, string | null>();
   const wanted = Array.from(new Set(blocks.flatMap((b) => b.lines.map((l) => l[2]).filter((u): u is string => !!u))));
@@ -220,7 +233,7 @@ export async function GET(request: NextRequest) {
   const sub = `截至 ${nzTime(now.toISOString())}` + (s.built ? ` · 广告/Trade Me 数据 ${nzTime(s.built)}` : "");
   const footer = part === "cars"
     ? "数字和账本网页一样，看「运营」。照片是 Trade Me 刊登的第一张。比价、新品、哪类车好卖、新上架怎么样、没人关注：各问各的。"
-    : "数字和账本网页一样：销售看「账本」，库存看「库存」，广告和排名看「运营」。车看「在售」。常用问法和审批口令：跟 bot 说「能做什么」。";
+    : "数字和账本网页一样：细节各问各的：账本、库存、广告、排名、分账。车看「在售」。常用问法和审批口令：跟 bot 说「能做什么」。";
   const allText = [title, sub, verdict, footer,
     ...blocks.flatMap((b) => [b.title, b.empty ?? "", b.note ?? "", ...b.kpis.flatMap((k) => [k[0], k[1]]), ...b.lines.flatMap((l) => [l[0], l[1] ?? "", l[3] ?? ""])]),
     "0123456789$.,%−—·（）/：…「」+↑↓→ "].join("");
