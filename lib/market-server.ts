@@ -4,7 +4,7 @@ import { loadMarketRows } from "@/lib/market-db";
 import { DEMAND_KEY, Demand, OurPrice, Product, marketReport } from "@/lib/market";
 
 // Everything marketReport() needs, loaded once per request.
-async function nzdPerCny(): Promise<number | null> {
+export async function nzdPerCny(): Promise<number | null> {
   try {   // ECB reference rates (no key), cached for a day
     const r = await fetch("https://api.frankfurter.dev/v1/latest?base=NZD&symbols=CNY", { next: { revalidate: 86400 } });
     const d = await r.json();
