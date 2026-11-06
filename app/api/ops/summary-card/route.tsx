@@ -145,11 +145,13 @@ export async function GET(request: NextRequest) {
 
   // Trade Me
   const tm = s.tm_summary;
+  // the same listing's price on the 新上架 / 没人关注 rows, so they carry the cost line too (owner 2026-11-06)
+  const listedOf = new Map((tm?.watch_top ?? []).map((b) => [b.title, b.price] as const));
   const trademe: Block = { title: "Trade Me", kpis: tm ? [["在架", `${tm.live} 件`], ["7 天新浏览", `${tm.new_views}`], ["7 天新关注", `${tm.new_watchers}`, C.green],
       ["快到期没人关注", `${tm.ending_7d_no_watchers}`, tm.ending_7d_no_watchers ? C.amber : undefined]] : [],
     lines: tm ? [
-      ...tm.new.slice(0, 3).map((n) => [`新上架 ${carName(n)}`, `${n.days_live} 天 · 浏览 ${n.views} · 关注 ${n.watchers}`, n.photo] as Line),
-      ...tm.slow.slice(0, 2).map((b) => [`没人关注 ${carName(b)}`, `${b.days_on_trademe} 天 · 浏览 ${b.views}`, b.photo] as Line),
+      ...tm.new.slice(0, 3).map((n) => [`新上架 ${carName(n)}`, `${n.days_live} 天 · 浏览 ${n.views} · 关注 ${n.watchers}`, n.photo, costLine(n.product, listedOf.get(n.title))] as Line),
+      ...tm.slow.slice(0, 2).map((b) => [`没人关注 ${carName(b)}`, `${b.days_on_trademe} 天 · 浏览 ${b.views}`, b.photo, costLine(b.product, listedOf.get(b.title))] as Line),
     ] : [], empty: "Trade Me 数据还没推过来" };
 
   // 关注量 / 车系: the numbers `trademe stats` wrote into the snapshot (listings.json), shown as they are
