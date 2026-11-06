@@ -143,6 +143,9 @@ function HomeContent() {
             <a href="/stock" className="px-4 py-2 border border-slate-300 rounded-lg hover:bg-white transition text-sm font-medium text-slate-700">
               库存
             </a>
+            <a href="/split" className="px-4 py-2 border border-slate-300 rounded-lg hover:bg-white transition text-sm font-medium text-slate-700">
+              分账
+            </a>
             <a href="/ops" className="px-4 py-2 border border-slate-300 rounded-lg hover:bg-white transition text-sm font-medium text-slate-700">
               运营看板
             </a>

@@ -47,6 +47,7 @@ function BooksContent() {
           <div className="flex flex-wrap items-center gap-4 text-sm">
             <a href="/" className="text-slate-500 hover:text-slate-800">订单</a>
             <a href="/stock" className="text-slate-500 hover:text-slate-800">库存</a>
+            <a href="/split" className="text-slate-500 hover:text-slate-800">分账</a>
             <a href="/ops" className="text-slate-500 hover:text-slate-800">运营看板</a>
             <button onClick={load} className="flex items-center gap-1 text-slate-500 hover:text-slate-800"><RefreshCw className="w-4 h-4" />刷新</button>
           </div>
