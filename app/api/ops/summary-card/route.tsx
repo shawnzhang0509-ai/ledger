@@ -3,7 +3,7 @@ import { ImageResponse } from "next/og";
 import { getKvClient } from "@/lib/kv";
 import { loadBooks, loadStockReport } from "@/lib/books-server";
 import { nzDate } from "@/lib/stock";
-import { loadMarketReport, loadProducts } from "@/lib/market-server";
+import { loadMarketReport } from "@/lib/market-server";
 import { FREIGHT_EST_NZD } from "@/lib/market";
 import type { AdRace } from "@/lib/ad-race";
 import { isAuthenticated, pushTokenMatches } from "@/lib/session";
@@ -14,7 +14,7 @@ import { isAuthenticated, pushTokenMatches } from "@/lib/session";
 // the 「能做什么」 card (/api/team/card), which is where people ask for them.
 // Two pictures (owner 2026-11-03 "能不能配车的照片…分两张图，看车名我看不懂"): ?part=business (to-dos, sales, ads, search
 // ranks, stock, who waits) and ?part=cars, where every car row shows its photo (Trade Me's first photo, from the snapshot,
-// or the catalogue photo for the price rows). Sales and stock come from the books themselves; ads, Trade Me, the inbox
+// ). Since 2026-11-06 (owner: 一个指令对一套图) ?part=cars holds only the cars: 比价, 新品, 车系 have their own cards. Sales and stock come from the books themselves; ads, Trade Me, the inbox
 // and pending codes from the ops snapshot driftae-ops pushes every 30 min (`dt dashboard --push`). `dt ops card` saves
 // it, the bot sends it; the 07:30 daily check sends it too. Nothing here is computed twice: the same sources as the pages.
 export const dynamic = "force-dynamic";
@@ -99,9 +99,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const part = request.nextUrl.searchParams.get("part") === "cars" ? "cars" : "business";
-  const [books, stock, snap, market, catalogue] = await Promise.all([loadBooks(), loadStockReport(), getKvClient().get("ops:metrics"),
-    loadMarketReport().catch(() => null), loadProducts().catch(() => [])]);
-  const imageOf = new Map(catalogue.map((p) => [p.id, p.image ?? null]));
+  const [books, stock, snap, market] = await Promise.all([loadBooks(), loadStockReport(), getKvClient().get("ops:metrics"),
+    loadMarketReport().catch(() => null)]);
   // 进货价 / 售价 / 毛利 per live car (owner 2026-11-05): the market report's own numbers for the listing's product —
   // cost = the report's goods cost (entered 进货价, else the RMB in the photo folder name) at today's rate, margin = the
   // report's estimate (after its freight guess). Neither, or the listing isn't one of our catalogue products: 成本缺.
@@ -154,7 +153,7 @@ export async function GET(request: NextRequest) {
       ...tm.slow.slice(0, 2).map((b) => [`没人关注 ${carName(b)}`, `${b.days_on_trademe} 天 · 浏览 ${b.views}`, b.photo, costLine(b.product, listedOf.get(b.title))] as Line),
     ] : [], empty: "Trade Me 数据还没推过来" };
 
-  // 关注量 / 车系: the numbers `trademe stats` wrote into the snapshot (listings.json), shown as they are
+  // 关注量: the numbers `trademe stats` wrote into the snapshot (listings.json), shown as they are
   const pctText = (v: number | null | undefined) => (v == null ? "—" : `${v}%`);
   // every live listing (owner 2026-11-03 "trademe 的 33 个没有啊"), most watched first; the snapshot carries all of them
   const watchB: Block = { title: `在架的每一台（${tm?.watch_top?.length ?? 0} 件，按关注排）`, kpis: [],
@@ -171,37 +170,6 @@ export async function GET(request: NextRequest) {
       .map((p) => p.name.replace(/^(NOREV|Sun Star|KK Scale|WERK83|Quartzo)\s+/i, "")).join("  ·  ")] as Line),
     empty: market ? "全部都有进货价了" : "无数据（市场模块没读到）",
     note: noCost.length ? "补：跟 bot 说「车名 进货价 ¥N」，或发进货单照片" : undefined };
-  const famB: Block = { title: "车系（近 7 天）", kpis: [],
-    lines: tm ? (tm.families ?? []).map((f) => [`${f.label}（${f.listings} 件）`, `浏览 ${f.new_views} · 关注 ${f.new_watchers} · 收藏率 ${pctText(f.watch_rate_pct)}`] as Line) : [],
-    empty: "关注量数据还没推过来" };
-
-  // 比价: the market report's own numbers (our price, cheapest same-car price, % apart), biggest gap first
-  const priced = (market?.products ?? []).filter((p) => p.our_price != null && p.market && p.vs_market_pct != null)
-    .sort((a, b) => Math.abs(b.vs_market_pct as number) - Math.abs(a.vs_market_pct as number)).slice(0, 8);
-  // until refs are confirmed there is no same-car price: show Bay Hobbies' same-casting price (another colour) as a
-  // reference instead, clearly labelled, with how many refs still need checking on /market
-  const signed = (v: number) => `${v > 0 ? "+" : ""}${v}%`;
-  const similar = priced.length ? [] : (market?.products ?? [])
-    .filter((p) => p.our_price != null && p.bayhobbies?.match === "model" && p.vs_bayhobbies_pct != null)
-    .sort((a, b) => Math.abs(b.vs_bayhobbies_pct as number) - Math.abs(a.vs_bayhobbies_pct as number)).slice(0, 6);
-  const refs = market?.refs;
-  const priceB: Block = { title: "比价：我们价 vs 同款市场价（Bay Hobbies / Trade Me）",
-    kpis: refs ? [["货号已确认", `${refs.confirmed} 台`, refs.confirmed ? C.green : C.amber], ["待核对", `${refs.candidate} 台`, refs.candidate ? C.amber : undefined],
-      ["不知道货号", `${refs.unknown} 台`], ["Bay Hobbies 数据", market?.bayhobbies_seen ? nzTime(market.bayhobbies_seen).split(" ")[0] : "—"]] : [],
-    lines: priced.length
-      ? priced.map((p) => [p.name, `我们 ${money(p.our_price as number)} · ${p.market?.source} ${money(p.market?.price ?? 0)} · ${signed(p.vs_market_pct as number)}`, imageOf.get(p.product)] as Line)
-      : similar.map((p) => [`同车型参考 ${p.name}`, `我们 ${money(p.our_price as number)} · BH 别色 ${money(p.bayhobbies?.price ?? 0)} · ${signed(p.vs_bayhobbies_pct as number)}`, imageOf.get(p.product)] as Line),
-    empty: market ? "还没有能比的价" : "无数据（市场模块没读到）",
-    note: priced.length ? undefined : "货号确认后才算同款比价，在账本「市场」页确认。" };
-
-  // 新品雷达: the candidates on /market, not dropped, in the report's own order
-  const radar = (market?.radar ?? []).filter((c) => c.status !== "dropped");
-  const radarB: Block = { title: "新品雷达", kpis: market ? [["候选", `${radar.filter((c) => c.status === "proposed").length} 台`],
-      ["要", `${radar.filter((c) => c.status === "kept").length} 台`, C.green]] : [],
-    lines: radar.slice(0, 5).map((c) => [`${c.status === "kept" ? "要 " : ""}${c.brand} ${c.name}`,
-      [c.release ? `预计 ${c.release}` : null, c.margin_est_nzd != null ? `估毛利 ${money(c.margin_est_nzd)}` : null].filter(Boolean).join(" · ")] as Line),
-    empty: market ? "雷达上没有候选" : "无数据（市场模块没读到）" };
-
   // 搜索排名: dt's daily measurement (Trade Me best match), counted by dt
   const rk = s.tm_ranks;
   const place = (r: number | null) => (r == null ? `${rk?.depth ?? 200} 名外` : `第 ${r} 名`);
@@ -229,9 +197,12 @@ export async function GET(request: NextRequest) {
   // 一句话结论
   const todo = [s.sync_stuck && `服务器同步卡住了（找 Claude）`, waitingCustomers && `${waitingCustomers} 位客人等回复`, codes.length && `${codes.length} 张卡等码`,
     missing.length && `${missing.length} 单缺成本`, tm?.ending_7d_no_watchers && `${tm.ending_7d_no_watchers} 件快到期没人关注`].filter(Boolean) as string[];
-  const verdict = todo.length ? `要人处理：${todo.join(" · ")}` : "今天没有等人处理的事";
+  const carTodo = tm?.ending_7d_no_watchers ? [`${tm.ending_7d_no_watchers} 件快到期没人关注`] : [];
+  const verdict = part === "cars" ? (carTodo.length ? `要人处理：${carTodo[0]}` : "在售的车今天没有要处理的")
+    : todo.length ? `要人处理：${todo.join(" · ")}` : "今天没有等人处理的事";
 
-  const blocks = part === "cars" ? [trademe, costB, watchB, famB, priceB, radarB] : [sales, ads, rankB, stockB, people];
+  // one command, one set of pictures (owner 2026-11-06): 比价, 新品 and 哪类车好卖 are their own cards
+  const blocks = part === "cars" ? [trademe, watchB, costB] : [sales, ads, rankB, stockB, people];
   for (const b of blocks) b.lines = b.lines.map(wrap);
   const photos = new Map<string, string | null>();
   const wanted = Array.from(new Set(blocks.flatMap((b) => b.lines.map((l) => l[2]).filter((u): u is string => !!u))));
@@ -250,11 +221,11 @@ export async function GET(request: NextRequest) {
   }
   const H = height();
 
-  const title = part === "cars" ? "DRIFTAE 运营总览 ② 车" : "DRIFTAE 运营总览 ① 生意";
+  const title = part === "cars" ? "DRIFTAE 在售" : "DRIFTAE 运营总览";
   const sub = `截至 ${nzTime(now.toISOString())}` + (s.built ? ` · 广告/Trade Me 数据 ${nzTime(s.built)}` : "");
   const footer = part === "cars"
-    ? "数字和账本网页一样：Trade Me 和关注量看「运营」，比价和雷达看「市场」。照片是 Trade Me 刊登的第一张（比价用网站的主图）。"
-    : "数字和账本网页一样：销售看「账本」，库存看「库存」，广告和排名看「运营」。车的表现在第 ② 张。常用问法和审批口令：跟 bot 说「能做什么」。";
+    ? "数字和账本网页一样，看「运营」。照片是 Trade Me 刊登的第一张。比价、新品、哪类车好卖：各问各的。"
+    : "数字和账本网页一样：销售看「账本」，库存看「库存」，广告和排名看「运营」。车看「在售」。常用问法和审批口令：跟 bot 说「能做什么」。";
   const allText = [title, sub, verdict, footer,
     ...blocks.flatMap((b) => [b.title, b.empty ?? "", b.note ?? "", ...b.kpis.flatMap((k) => [k[0], k[1]]), ...b.lines.flatMap((l) => [l[0], l[1] ?? "", l[3] ?? ""])]),
     "0123456789$.,%−—·（）/：…「」+↑↓→ "].join("");
