@@ -96,7 +96,7 @@ function view(s: MarketReport, v: string, books: BooksReport | null = null) {
   if (v === "radar") {
     const cands = s.radar.filter((c) => c.status !== "dropped").slice(0, MAX_ROWS);
     return {
-      title: "DRIFTAE 新品雷达",
+      title: "该进什么车",
       sub: `截至 ${nzTime(s.built)} · 我们还没卖的车，按同车系卖得怎样排`,
       kpis: [
         ["候选", `${s.radar.filter((c) => c.status === "proposed").length} 台`, C.text],
