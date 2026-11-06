@@ -4,6 +4,7 @@ import { getKvClient } from "@/lib/kv";
 import { loadBooks, loadStockReport } from "@/lib/books-server";
 import { nzDate } from "@/lib/stock";
 import { loadMarketReport, loadProducts } from "@/lib/market-server";
+import { FREIGHT_EST_NZD } from "@/lib/market";
 import type { AdRace } from "@/lib/ad-race";
 import { isAuthenticated, pushTokenMatches } from "@/lib/session";
 
@@ -30,7 +31,7 @@ type Snap = {
     new: (CarRef & { title: string; days_live: number; views: number; watchers: number })[];
     slow: (CarRef & { title: string; days_on_trademe: number; views: number })[]; ending_7d_no_watchers: number;
     // from `trademe stats` (listings.json): live listings with the most watchers, and 7-day views/watchers per car family
-    watch_top?: (CarRef & { title: string; views: number; watchers: number; watch_rate_pct: number | null })[];
+    watch_top?: (CarRef & { title: string; price?: number | null; views: number; watchers: number; watch_rate_pct: number | null })[];
     families?: { label: string; listings: number; new_views: number; new_watchers: number; watch_rate_pct: number | null }[];
   };
   // `dt dashboard`: the latest search-rank measurement vs the one before (trademe/ranks), counted by dt
@@ -39,6 +40,7 @@ type Snap = {
     off_trademe?: string[];   // words whose car wasn't on Trade Me when measured (ended, not relisted yet): not a drop
     best: { q: string; rank: number; car: string | null }[] } | null;
   pending_codes?: { verb: string; what: string; to: string; hours_left: number }[];
+  sync_stuck?: number;   // commits the server couldn't push: driftae-sync has been failing (dt dashboard)
 };
 
 const W = 1080, PAD = 44, MAX_H = 6000;   // WeChat squashes taller images until they can't be read
@@ -105,13 +107,13 @@ export async function GET(request: NextRequest) {
   // report's estimate (after its freight guess). Neither, or the listing isn't one of our catalogue products: 成本缺.
   const priceOf = new Map((market?.products ?? []).map((p) => [p.product, p] as const));
   const money0 = (n: number) => `$${Math.round(n)}`;
-  const costLine = (product?: string | null) => {
+  // 售价 = what the listing really asks (the report's our_price misses relisted cars); margin = that − cost − the report's freight guess
+  const costLine = (product?: string | null, listed?: number | null) => {
     const p = product ? priceOf.get(product) : undefined;
-    const sale = p?.our_price != null ? `售价 ${money0(p.our_price)}` : null;
-    // owner 2026-11-05 "带成本的你搞不定吗": use every cost the report has — the entered one, else the RMB the team wrote
-    // in the photo folder name (the report's own fallback); only cars with neither show 成本缺
+    const price = listed ?? p?.our_price ?? null;
+    const sale = price != null ? `售价 ${money0(price)}` : null;
     if (!p || p.goods_cost_nzd == null) return ["成本缺", sale].filter(Boolean).join(" · ");
-    return [`进货 ${money0(p.goods_cost_nzd)}`, sale, p.margin_est_nzd != null ? `毛利 ${money0(p.margin_est_nzd)}` : null].filter(Boolean).join(" · ");
+    return [`进货 ${money0(p.goods_cost_nzd)}`, sale, price != null ? `毛利 ${money0(price - p.goods_cost_nzd - FREIGHT_EST_NZD)}` : null].filter(Boolean).join(" · ");
   };
   const s = (snap ?? {}) as Snap;
   const now = new Date();
@@ -155,7 +157,7 @@ export async function GET(request: NextRequest) {
   // every live listing (owner 2026-11-03 "trademe 的 33 个没有啊"), most watched first; the snapshot carries all of them
   const watchB: Block = { title: `在架的每一台（${tm?.watch_top?.length ?? 0} 件，按关注排）`, kpis: [],
     lines: tm ? (tm.watch_top ?? []).map((b) => [carName(b), `浏览 ${b.views} · 关注 ${b.watchers} · 收藏率 ${pctText(b.watch_rate_pct)}`, b.photo,
-      costLine(b.product)] as Line) : [],
+      costLine(b.product, b.price)] as Line) : [],
     empty: "关注量数据还没推过来" };
   // 进货价还缺哪些 (owner 2026-11-05 "你记着总览车图都标里面"): every catalogue car without an entered 进货价, so the
   // gap shrinks on the picture as the team fills it (bot: 「<车> 进货价 ¥N」, or the 商品与价格 page)
@@ -223,7 +225,7 @@ export async function GET(request: NextRequest) {
     lines: codes.slice(0, 4).map((c) => [`等「${c.verb}」${c.what}`, `还剩 ${c.hours_left} 小时`] as Line) };
 
   // 一句话结论
-  const todo = [waitingCustomers && `${waitingCustomers} 位客人等回复`, codes.length && `${codes.length} 张卡等码`,
+  const todo = [s.sync_stuck && `服务器同步卡住了（找 Claude）`, waitingCustomers && `${waitingCustomers} 位客人等回复`, codes.length && `${codes.length} 张卡等码`,
     missing.length && `${missing.length} 单缺成本`, tm?.ending_7d_no_watchers && `${tm.ending_7d_no_watchers} 件快到期没人关注`].filter(Boolean) as string[];
   const verdict = todo.length ? `要人处理：${todo.join(" · ")}` : "今天没有等人处理的事";
 
