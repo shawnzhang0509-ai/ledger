@@ -1,23 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ImageResponse } from "next/og";
 import { getKvClient } from "@/lib/kv";
-import { loadBooks, loadStockReport } from "@/lib/books-server";
-import { nzDate } from "@/lib/stock";
+import { loadBooks } from "@/lib/books-server";
 import { loadMarketReport } from "@/lib/market-server";
 import { FREIGHT_EST_NZD } from "@/lib/market";
-import { loadSplitReport } from "@/lib/split-server";
-import type { AdRace } from "@/lib/ad-race";
 import { isAuthenticated, pushTokenMatches } from "@/lib/session";
 
-// 运营总览 (owner 2026-10-27; 2026-11-03 "一张图看全"): one long PNG for WeChat with sales, ads (the race), Trade Me,
-// watchers per car and family, prices against the market, the new-release radar, search ranks, stock, customers waiting
-// and codes waiting. Car names wrap to two lines instead of being cut. The everyday phrases and approval words moved to
-// the 「能做什么」 card (/api/team/card), which is where people ask for them.
-// Two pictures (owner 2026-11-03 "能不能配车的照片…分两张图，看车名我看不懂"): ?part=business (to-dos, sales, ads, search
-// ranks, stock, who waits) and ?part=cars, where every car row shows its photo (Trade Me's first photo, from the snapshot,
-// ). Since 2026-11-06 (owner: 一个指令对一套图) ?part=cars holds only the cars: 比价, 新品, 车系 have their own cards. Sales and stock come from the books themselves; ads, Trade Me, the inbox
-// and pending codes from the ops snapshot driftae-ops pushes every 30 min (`dt dashboard --push`). `dt ops card` saves
-// it, the bot sends it; the 07:30 daily check sends it too. Nothing here is computed twice: the same sources as the pages.
+// 总览 (owner 2026-11-07: 一个图解决一个问题，总览就是整体的利润情况): ?part=business is one thing, the profit of all time from
+// the books, with ad money as one cost. Sales, ad detail, ranks, stock and who's waiting are their own cards.
+// ?part=cars (在售) is every live car with its photo (Trade Me's first photo, from the snapshot). Ads and Trade Me come from the
+// ops snapshot driftae-ops pushes every 30 min (`dt dashboard --push`). `dt ops card` saves it, the bot sends it.
 export const dynamic = "force-dynamic";
 
 type CarRef = { label?: string; product?: string | null; photo?: string | null };
@@ -25,8 +17,6 @@ type Brief = CarRef & { listing_id: number; title: string; price: number | null;
 type Snap = {
   built?: string;
   ads?: { ad: string; window: string; status: string; spend: number; conversations: number; impressions: number }[];
-  ad_race?: AdRace;
-  inbox?: { status: string }[];
   tm_summary?: {
     live: number; new_views: number; new_watchers: number; top_watched: Brief[];
     new: (CarRef & { title: string; days_live: number; views: number; watchers: number })[];
@@ -35,15 +25,6 @@ type Snap = {
     watch_top?: (CarRef & { title: string; price?: number | null; views: number; watchers: number; watch_rate_pct: number | null })[];
     families?: { label: string; listings: number; new_views: number; new_watchers: number; watch_rate_pct: number | null }[];
   };
-  // `dt dashboard`: the latest search-rank measurement vs the one before (trademe/ranks), counted by dt
-  tm_ranks?: { measured: string; compared_with: string | null; depth: number; words: number; top10: number; top50: number; out: number;
-    moved: { q: string; now: number | null; was: number | null; up: number; car: string | null }[];
-    off_trademe?: string[];   // words whose car wasn't on Trade Me when measured (ended, not relisted yet): not a drop
-    best: { q: string; rank: number; car: string | null }[] } | null;
-  pending_codes?: { verb: string; what: string; to: string; hours_left: number }[];
-  site_7d?: { visitors: number; pageviews: number };
-  mail_unread?: number;
-  sync_stuck?: number;   // commits the server couldn't push: driftae-sync has been failing (dt dashboard)
 };
 
 const W = 1080, PAD = 44, MAX_H = 12000;   // dt cuts the card into small pictures for WeChat, so this only guards rendering (6000 dropped 14 of 46 cars)
@@ -102,8 +83,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const part = request.nextUrl.searchParams.get("part") === "cars" ? "cars" : "business";
-  const [books, stock, snap, market] = await Promise.all([loadBooks(), loadStockReport(), getKvClient().get("ops:metrics"),
-    loadMarketReport().catch(() => null)]);
+  const [books, snap, market] = await Promise.all([loadBooks(), getKvClient().get("ops:metrics"),
+    part === "cars" ? loadMarketReport().catch(() => null) : null]);
   // 进货价 / 售价 / 毛利 per live car (owner 2026-11-05): the market report's own numbers for the listing's product —
   // cost = the report's goods cost (entered 进货价, else the RMB in the photo folder name) at today's rate, margin = the
   // report's estimate (after its freight guess). Neither, or the listing isn't one of our catalogue products: 成本缺.
@@ -119,31 +100,26 @@ export async function GET(request: NextRequest) {
   };
   const s = (snap ?? {}) as Snap;
   const now = new Date();
-  const today = nzDate(now), month = today.slice(0, 7);
-  const weekAgo = nzDate(new Date(now.getTime() - 7 * 86400000));
 
-  // 销售
-  const m = books.months.find((x) => x.month === month);
-  const sold7 = books.lines.filter((l) => l.dateSold >= weekAgo && !l.returned).sort((a, b) => b.dateSold.localeCompare(a.dateSold));
-  const missing = books.lines.filter((l) => !l.complete && !l.returned);
-  const flagged = books.lines.filter((l) => l.flags.length);
-  const sales: Block = { title: "销售", kpis: [["本月营收", money(m?.revenue ?? 0)], ["本月单数", `${m?.orders ?? 0}`],
-      ["本月已算清毛利", money(m?.completeGp ?? 0), C.green], ["缺成本的单", `${missing.length}`, missing.length ? C.amber : undefined]],
-    lines: sold7.slice(0, 5).map((l) => [`${l.dateSold.slice(5)} ${l.model}`, money(l.price + l.shipping)] as Line),
-    empty: "近 7 天没有新卖出的" };
-
-  // 广告（近 7 天）
-  const ads7 = (s.ads ?? []).filter((a) => a.window !== "lifetime");
-  const spend = ads7.reduce((t, a) => t + (a.spend || 0), 0), conv = ads7.reduce((t, a) => t + (a.conversations || 0), 0);
-  const live = (s.ads ?? []).filter((a) => a.window === "lifetime" && a.status === "ACTIVE").length;
-  const lead = s.ad_race?.ads?.find((r) => r.ad === s.ad_race?.leader);
-  const ads: Block = { title: "广告（近 7 天）", kpis: [["花费", `$${spend.toFixed(2)}`], ["私信对话", `${conv}`],
-      ["每个对话", conv ? `$${(spend / conv).toFixed(2)}` : "—"], ["在投", `${live} 条`, live ? C.green : C.amber]],
-    lines: (s.ad_race?.ads ?? []).slice(0, 5).map((r) => [`${r.ad === s.ad_race?.leader ? "领先 " : ""}${r.name || r.ad}`,
-      `${r.done ? "跑满" : `第 ${r.days}/${s.ad_race?.days} 天`} · $${r.spend.toFixed(2)} · 对话 ${r.conversations}` +
-      (r.cost_per_conversation != null ? ` · 每对话 $${r.cost_per_conversation.toFixed(2)}` : "")] as Line),
-    empty: "赛马还没有数据（每条要跑满 7 天、展示过 1,000 才比）",
-    note: lead || !(s.ad_race?.ads ?? []).length ? undefined : "赛马还没有能比的（每条要跑满 7 天、展示过 1,000）" };
+  // 利润表, all time: only sales whose costs are all in have a real profit, so the others are shown apart and not counted.
+  // Ad money is every ad's whole history; none of it is left out for the sales not counted yet, so the profit is on the low side.
+  const sum = (ls: typeof books.lines, f: (l: (typeof books.lines)[number]) => number) => ls.reduce((t, l) => t + f(l), 0);
+  const done = books.lines.filter((l) => l.complete), open = books.lines.filter((l) => !l.complete);
+  const adSpend = (s.ads ?? []).filter((a) => a.window === "lifetime").reduce((t, a) => t + (a.spend || 0), 0);
+  const profit = books.totals.completeGp - adSpend;
+  const first = books.lines.map((l) => l.dateSold).filter(Boolean).sort()[0];
+  const profitB: Block = { title: `利润表（${first ? `${first.slice(0, 10)} 第一单起，` : ""}算清的 ${done.length} 单）`, kpis: [], lines: [
+    ["收入（售价 + 收的运费）", money(books.totals.completeRevenue)],
+    ["车的进货价", money(-sum(done, (l) => l.purchase))],
+    ["空运费", money(-sum(done, (l) => l.air))],
+    ["快递费", money(-sum(done, (l) => l.courier))],
+    ["Trade Me 费用", money(-sum(done, (l) => l.fee))],
+    ["广告费", money(-adSpend)],
+    ["利润", money(profit)],
+  ] };
+  const openB: Block = { title: "还没算进去", kpis: [], lines: open.length
+    ? [[`${open.length} 单成本没填完（收入 ${money(sum(open, (l) => l.price + l.shipping))}）`, "填完利润才准"]] : [],
+    empty: "每一单的成本都填完了" };
 
   // Trade Me
   const tm = s.tm_summary;
@@ -168,49 +144,13 @@ export async function GET(request: NextRequest) {
       .map((p) => p.name.replace(/^(NOREV|Sun Star|KK Scale|WERK83|Quartzo)\s+/i, "")).join("  ·  ")] as Line),
     empty: market ? "全部都有进货价了" : "无数据（市场模块没读到）",
     note: noCost.length ? "补：跟 bot 说「车名 进货价 ¥N」，或发进货单照片" : undefined };
-  // 搜索排名: dt's daily measurement (Trade Me best match), counted by dt
-  const rk = s.tm_ranks;
-  const place = (r: number | null) => (r == null ? `${rk?.depth ?? 200} 名外` : `第 ${r} 名`);
-  const rankB: Block = { title: "Trade Me 搜索排名" + (rk ? `（${nzTime(rk.measured)}${rk.compared_with ? ` 比 ${rk.compared_with.slice(5)}` : ""}）` : ""),
-    kpis: rk ? [["搜索词", `${rk.words}`], ["前 10 名", `${rk.top10}`, C.green], ["前 50 名", `${rk.top50}`], [`${rk.depth} 名外`, `${rk.out}`, rk.out ? C.amber : undefined]] : [],
-    lines: rk ? (rk.moved.length
-      ? rk.moved.map((m) => [`${m.up > 0 ? "↑" : "↓"} 「${m.q}」${m.car ? ` ${m.car}` : ""}`, `${place(m.was)} → ${place(m.now)}`] as Line)
-      : rk.best.map((b) => [`「${b.q}」${b.car ? ` ${b.car}` : ""}`, place(b.rank)] as Line))
-      .concat(rk.off_trademe?.length ? [[`车不在架上、搜不到（到期还没重新上架）：${rk.off_trademe.map((q) => `「${q}」`).join("")}`] as Line] : []) : [],
-    empty: "无数据（排名还没推过来）", note: rk && rk.moved.length ? "↑↓ 是车在架上、名次真的变了的词；每个词的名次看「排名」卡。" : undefined };
-
-  // 库存
-  const spare = stock.items.filter((i) => i.status === "InStock" && !i.listingId);
-  const stockB: Block = { title: "库存", kpis: [["在库（含已上架、在途）", `${stock.totals.inStock} 台`], ["落地成本", money(stock.totals.stockCost)],
-      ["已上架", `${stock.totals.listed} 台`], ["在库没上架", `${spare.length} 台`, spare.length ? C.amber : undefined]],
-    lines: spare.slice(0, 3).map((i) => [`没上架 ${i.model}`, i.landedCost ? money(i.landedCost) : "成本缺"] as Line) };
-
-  // 客人和审批
-  const waitingCustomers = (s.inbox ?? []).filter((c) => c.status === "waiting").length;
-  const codes = s.pending_codes ?? [];
-  const people: Block = { title: "客人和审批", kpis: [["等回复的客人", `${waitingCustomers}`, waitingCustomers ? C.red : C.green],
-      ["等码的卡", `${codes.length}`, codes.length ? C.amber : C.green], ["账本要核对", `${flagged.length} 单`, flagged.length ? C.amber : undefined]],
-    lines: codes.slice(0, 4).map((c) => [`等「${c.verb}」${c.what}`, `还剩 ${c.hours_left} 小时`] as Line) };
-
-  // one line each (owner 2026-11-06): the detail is on 分账, or when you say 网站 / 邮件
-  const split = part === "business" ? await loadSplitReport().catch(() => null) : null;
-  const holds = (split?.people ?? []).filter((p) => p.balance).map((p) => (p.balance < 0 ? `${p.name}手上有 ${money(-p.balance)}` : `公司欠${p.name} ${money(p.balance)}`));
-  const moreB: Block = { title: "网站 · 邮件 · 分账", kpis: [], lines: [
-    ["网站近 7 天", s.site_7d ? `${s.site_7d.visitors} 人 · ${s.site_7d.pageviews} 次浏览` : "—"],
-    ["没读的邮件", s.mail_unread != null ? `${s.mail_unread} 封` : "—"],
-    ["分账", split ? holds.join(" · ") || "两清" : "—"],
-    ...(split?.costs_unnamed ? [["成本没写明谁付", money(split.costs_unnamed)] as Line] : []),
-  ] };
-
-  // 一句话结论
-  const todo = [s.sync_stuck && `服务器同步卡住了（找 Claude）`, waitingCustomers && `${waitingCustomers} 位客人等回复`, codes.length && `${codes.length} 张卡等码`,
-    missing.length && `${missing.length} 单缺成本`, tm?.ending_7d_no_watchers && `${tm.ending_7d_no_watchers} 件快到期没人关注`].filter(Boolean) as string[];
   const carTodo = tm?.ending_7d_no_watchers ? [`${tm.ending_7d_no_watchers} 件快到期没人关注`] : [];
   const verdict = part === "cars" ? (carTodo.length ? `要人处理：${carTodo[0]}` : "在售的车今天没有要处理的")
-    : todo.length ? `要人处理：${todo.join(" · ")}` : "今天没有等人处理的事";
+    : `到现在一共${profit < 0 ? "亏" : "赚"} ${money(Math.abs(profit))}`;
+  const verdictColor = part === "cars" ? (carTodo.length ? C.amber : C.green) : profit < 0 ? C.red : C.green;
 
   // one command, one set of pictures (owner 2026-11-06): 比价, 新品, 哪类车好卖, 新上架 and 没人关注 are their own cards
-  const blocks = part === "cars" ? [trademe, watchB, costB] : [sales, ads, rankB, stockB, people, moreB];
+  const blocks = part === "cars" ? [trademe, watchB, costB] : [profitB, openB];
   for (const b of blocks) b.lines = b.lines.map(wrap);
   const photos = new Map<string, string | null>();
   const wanted = Array.from(new Set(blocks.flatMap((b) => b.lines.map((l) => l[2]).filter((u): u is string => !!u))));
@@ -229,14 +169,14 @@ export async function GET(request: NextRequest) {
   }
   const H = height();
 
-  const title = part === "cars" ? "DRIFTAE 在售" : "DRIFTAE 运营总览";
+  const title = part === "cars" ? "DRIFTAE 在售" : "DRIFTAE 总览";
   const sub = `截至 ${nzTime(now.toISOString())}` + (s.built ? ` · 广告/Trade Me 数据 ${nzTime(s.built)}` : "");
   const footer = part === "cars"
     ? "数字和账本网页一样，看「运营」。照片是 Trade Me 刊登的第一张。比价、该进什么车、新上架怎么样、没人关注：各问各的。"
-    : "这是摘要。要看明细就说：账本、库存、广告、排名、分账、在售。全部指令：说「指令」。";
+    : "这张只看利润。其他的各问各的：账本、广告、库存、排名、分账、在售。全部指令：说「指令」。";
   const allText = [title, sub, verdict, footer,
     ...blocks.flatMap((b) => [b.title, b.empty ?? "", b.note ?? "", ...b.kpis.flatMap((k) => [k[0], k[1]]), ...b.lines.flatMap((l) => [l[0], l[1] ?? "", l[3] ?? ""])]),
-    "0123456789$.,%−—·（）/：…「」+↑↓→ "].join("");
+    "0123456789$.,%−—·（）/：…「」+ "].join("");
   const [regular, bold] = await Promise.all([font(allText, 400), font(allText, 700)]);
   const box = { display: "flex", flexDirection: "column" as const, background: C.card, borderRadius: 16, padding: "18px 24px" };
 
@@ -247,7 +187,7 @@ export async function GET(request: NextRequest) {
           <div style={{ fontSize: 46, fontWeight: 700 }}>{title}</div>
           <div style={{ fontSize: 20, color: C.muted, marginTop: 6 }}>{sub}</div>
         </div>
-        <div style={{ ...box, height: 90, justifyContent: "center", fontSize: 28, fontWeight: 700, color: todo.length ? C.amber : C.green }}>{verdict}</div>
+        <div style={{ ...box, height: 90, justifyContent: "center", fontSize: part === "cars" ? 28 : 44, fontWeight: 700, color: verdictColor }}>{verdict}</div>
         {blocks.map((b) => (
           <div key={b.title} style={{ ...box, marginTop: 20 }}>
             <div style={{ fontSize: 28, fontWeight: 700, height: 44 }}>{b.title}</div>
