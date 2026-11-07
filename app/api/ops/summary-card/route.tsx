@@ -16,6 +16,7 @@ type CarRef = { label?: string; product?: string | null; photo?: string | null }
 type Brief = CarRef & { listing_id: number; title: string; price: number | null; views: number; watchers: number };
 type Snap = {
   built?: string;
+  tm_other_fees?: number;   // `dt dashboard`: Trade Me's account ledger, what isn't a success fee (Gallery, courier booking…): on no sale
   order_photos?: Record<string, string | null>;   // `dt dashboard`: each sale's car photo, by order id
   ads?: { ad: string; window: string; status: string; spend: number; conversations: number; impressions: number }[];
   tm_summary?: {
@@ -107,7 +108,8 @@ export async function GET(request: NextRequest) {
   const sum = (ls: typeof books.lines, f: (l: (typeof books.lines)[number]) => number) => ls.reduce((t, l) => t + f(l), 0);
   const done = books.lines.filter((l) => l.complete), open = books.lines.filter((l) => !l.complete);
   const adSpend = (s.ads ?? []).filter((a) => a.window === "lifetime").reduce((t, a) => t + (a.spend || 0), 0);
-  const profit = books.totals.completeGp - adSpend;
+  const otherFees = s.tm_other_fees ?? 0;
+  const profit = books.totals.completeGp - adSpend - otherFees;
   const first = books.lines.map((l) => l.dateSold).filter(Boolean).sort()[0];
   const profitB: Block = { title: `利润表（${first ? `${first.slice(0, 10)} 第一单起，` : ""}算清的 ${done.length} 单）`, kpis: [], lines: [
     ["收入（售价 + 收的运费）", money(books.totals.completeRevenue)],
@@ -116,11 +118,12 @@ export async function GET(request: NextRequest) {
     ["快递费", money(-sum(done, (l) => l.courier))],
     ["Trade Me 费用", money(-sum(done, (l) => l.fee))],
     ["广告费", money(-adSpend)],
+    ["Trade Me 刊登费等（不在单上）", money(-otherFees)],
     ["利润", money(profit)],
   ] };
   // every sale with its photo (owner 2026-11-07); the profit of one car is before ads, which aren't per car
   const photo = (l: (typeof books.lines)[number]) => s.order_photos?.[l.orderId] ?? null;
-  const carsB: Block = { title: "每台车赚了多少", kpis: [], note: "这里还没扣广告费，广告费在上面的表里一起扣。",
+  const carsB: Block = { title: "每台车赚了多少", kpis: [], note: "这里还没扣广告费和刊登费，它们在上面的表里一起扣。",
     lines: done.map((l) => [l.model, `${l.returned ? "退货 " : ""}${l.gp < 0 ? "亏" : "赚"} ${money(Math.abs(l.gp))}`, photo(l),
       `${l.dateSold.slice(5, 10)} · 卖 ${money(l.price + l.shipping)} · 进货 ${money(l.purchase)} · 空运 ${money(l.air)}${l.courier ? ` · 快递 ${money(l.courier)}` : ""} · 费 ${money(l.fee)}`] as Line) };
   const openB: Block = { title: `还没算进去（${open.length} 单，收入 ${money(sum(open, (l) => l.price + l.shipping))}）`, kpis: [],
