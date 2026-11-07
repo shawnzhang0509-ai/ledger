@@ -81,7 +81,7 @@ export async function GET(request: NextRequest) {
 
   const allText = [title, sub, footer, ...kpis.flat(), ...SPLIT.map((s) => s[1]), ...rows.flatMap((l) => [l.model, gpCell(l).text, money(l.price + l.shipping)]),
     ...shownFlags, "费用组成（成本齐全的单，占销售额）", "还没有成本齐全的单，算不出费用组成。补上进货价、汇率、空运费、快递成本就有了。",
-    "逐单", "车型", "售价+运费", "毛利", "需要核对", "还有", "单没列出", "条", "0123456789$.,%−·（）/：—… "].join("");
+    "逐单", "车型", "售价+运费", "空运", "毛利", "需要核对", "还有", "单没列出", "条", "0123456789$.,%−·（）/：—… "].join("");
   const [regular, bold] = await Promise.all([font(allText, 400), font(allText, 700)]);
 
   const box = { display: "flex", flexDirection: "column" as const, background: C.card, borderRadius: 16, padding: "22px 26px" };
@@ -127,8 +127,9 @@ export async function GET(request: NextRequest) {
 
         <div style={{ ...box, marginTop: 24 }}>
           <div style={{ display: "flex", fontSize: 18, color: C.muted, height: 40, alignItems: "flex-end" }}>
-            <div style={{ width: 380 + PHOTO_W + 14 }}>车型</div>
+            <div style={{ width: 330 + PHOTO_W + 14 }}>车型</div>
             <div style={{ width: 150 }}>售价+运费</div>
+            <div style={{ width: 130 }}>空运</div>
             <div style={{ flex: 1 }}>毛利</div>
           </div>
           {rows.map((l) => {
@@ -140,8 +141,9 @@ export async function GET(request: NextRequest) {
                 ) : (
                   <div style={{ width: PHOTO_W, height: PHOTO_H, borderRadius: 8, marginRight: 14, background: C.bg }} />
                 )}
-                <div style={{ width: 380, display: "block", lineClamp: 2, overflow: "hidden", fontSize: 22, lineHeight: "30px", paddingRight: 16 }}>{l.model || l.orderId}</div>
+                <div style={{ width: 330, display: "block", lineClamp: 2, overflow: "hidden", fontSize: 22, lineHeight: "30px", paddingRight: 16 }}>{l.model || l.orderId}</div>
                 <div style={{ width: 150 }}>{money(l.price + l.shipping)}</div>
+                <div style={{ width: 130, color: l.air ? C.text : C.muted }}>{l.air ? money(-l.air) : "—"}</div>
                 <div style={{ flex: 1, color: g.color, fontSize: g.size }}>{g.text}</div>
               </div>
             );
