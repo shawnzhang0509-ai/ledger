@@ -141,7 +141,7 @@ export async function GET(request: NextRequest) {
                 ) : (
                   <div style={{ width: PHOTO_W, height: PHOTO_H, borderRadius: 8, marginRight: 14, background: C.bg }} />
                 )}
-                <div style={{ width: 330, display: "block", lineClamp: 2, overflow: "hidden", fontSize: 22, lineHeight: "30px", paddingRight: 16 }}>{l.model || l.orderId}</div>
+                <div style={{ width: 314, marginRight: 16, display: "block", lineClamp: 2, overflow: "hidden", fontSize: 22, lineHeight: "30px" }}>{l.model || l.orderId}</div>
                 <div style={{ width: 150 }}>{money(l.price + l.shipping)}</div>
                 <div style={{ width: 130, color: l.air ? C.text : C.muted }}>{l.air ? money(-l.air) : "—"}</div>
                 <div style={{ flex: 1, color: g.color, fontSize: g.size }}>{g.text}</div>
