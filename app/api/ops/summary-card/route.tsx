@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ImageResponse } from "next/og";
 import { getKvClient } from "@/lib/kv";
-import { loadBooks } from "@/lib/books-server";
+import { loadBooks, loadStockReport } from "@/lib/books-server";
 import { loadMarketReport } from "@/lib/market-server";
 import { FREIGHT_EST_NZD } from "@/lib/market";
 import { isAuthenticated, pushTokenMatches } from "@/lib/session";
@@ -85,7 +85,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const part = request.nextUrl.searchParams.get("part") === "cars" ? "cars" : "business";
-  const [books, snap, market] = await Promise.all([loadBooks(), getKvClient().get("ops:metrics"),
+  const [books, stock, snap, market] = await Promise.all([loadBooks(), loadStockReport(), getKvClient().get("ops:metrics"),
     part === "cars" ? loadMarketReport().catch(() => null) : null]);
   // 进货价 / 售价 / 毛利 per live car (owner 2026-11-05): the market report's own numbers for the listing's product —
   // cost = the report's goods cost (entered 进货价, else the RMB in the photo folder name) at today's rate, margin = the
@@ -106,13 +106,16 @@ export async function GET(request: NextRequest) {
   // 利润表, all time: only sales whose costs are all in have a real profit, so the others are shown apart and not counted.
   // Ad money is every ad's whole history; none of it is left out for the sales not counted yet, so the profit is on the low side.
   const sum = (ls: typeof books.lines, f: (l: (typeof books.lines)[number]) => number) => ls.reduce((t, l) => t + f(l), 0);
-  const done = books.lines.filter((l) => l.complete), open = books.lines.filter((l) => !l.complete);
+  const done = books.lines.filter((l) => l.complete && !l.returned), back = books.lines.filter((l) => l.returned), open = books.lines.filter((l) => !l.complete);
   const adSpend = (s.ads ?? []).filter((a) => a.window === "lifetime").reduce((t, a) => t + (a.spend || 0), 0);
   const otherFees = s.tm_other_fees ?? 0;
-  const profit = books.totals.completeGp - adSpend - otherFees;
+  const profit = sum(done, (l) => l.gp) - adSpend - otherFees;
   const first = books.lines.map((l) => l.dateSold).filter(Boolean).sort()[0];
+  const photo = (l: (typeof books.lines)[number]) => s.order_photos?.[l.orderId] ?? null;
+  const backRows = back.map((l) => [l.model, "退货，不算利润", photo(l),
+    `${l.dateSold.slice(5, 10)} · 成本 ${money(stock.items.find((i) => i.id === l.stockId)?.landedCost ?? 0)} 进了库存 · 卖掉后算差额`] as Line);
   const profitB: Block = { title: `利润表（${first ? `${first.slice(0, 10)} 第一单起，` : ""}算清的 ${done.length} 单）`, kpis: [], lines: [
-    ["收入（售价 + 收的运费）", money(books.totals.completeRevenue)],
+    ["收入（售价 + 收的运费）", money(sum(done, (l) => l.price + l.shipping))],
     ["车的进货价", money(-sum(done, (l) => l.purchase))],
     ["空运费", money(-sum(done, (l) => l.air))],
     ["快递费", money(-sum(done, (l) => l.courier))],
@@ -122,10 +125,9 @@ export async function GET(request: NextRequest) {
     ["利润", money(profit)],
   ] };
   // every sale with its photo (owner 2026-11-07); the profit of one car is before ads, which aren't per car
-  const photo = (l: (typeof books.lines)[number]) => s.order_photos?.[l.orderId] ?? null;
   const carsB: Block = { title: "每台车赚了多少", kpis: [], note: "这里还没扣广告费和刊登费，它们在上面的表里一起扣。",
-    lines: done.map((l) => [l.model, `${l.returned ? "退货 " : ""}${l.gp < 0 ? "亏" : "赚"} ${money(Math.abs(l.gp))}`, photo(l),
-      `${l.dateSold.slice(5, 10)} · 卖 ${money(l.price + l.shipping)} · 进货 ${money(l.purchase)} · 空运 ${money(l.air)}${l.courier ? ` · 快递 ${money(l.courier)}` : ""} · 费 ${money(l.fee)}`] as Line) };
+    lines: done.map((l) => [l.model, `${l.gp < 0 ? "亏" : "赚"} ${money(Math.abs(l.gp))}`, photo(l),
+      `${l.dateSold.slice(5, 10)} · 卖 ${money(l.price + l.shipping)} · 进货 ${money(l.purchase)} · 空运 ${money(l.air)}${l.courier ? ` · 快递 ${money(l.courier)}` : ""} · 费 ${money(l.fee)}`] as Line).concat(backRows) };
   const openB: Block = { title: `还没算进去（${open.length} 单，收入 ${money(sum(open, (l) => l.price + l.shipping))}）`, kpis: [],
     lines: open.map((l) => [l.model, money(l.price + l.shipping), photo(l), `成本缺：${l.missing.join("、")} · ${l.dateSold.slice(5, 10)}`] as Line),
     empty: "每一单的成本都填完了" };

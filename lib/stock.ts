@@ -29,7 +29,7 @@ export interface StockItem {
   listingId: string;         // Trade Me
   orderId: string;           // the sale it went to (KP-…)
   soldAt: string;            // YYYY-MM-DD
-  returnedFrom: string;      // the sale it came back from, whose loss stays on that sale row
+  returnedFrom: string;      // the sale it came back from; all its costs came back with it
   notes: string;
   createdAt: string;
   updatedAt: string;
