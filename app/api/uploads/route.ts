@@ -50,6 +50,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ key, uploadUrl: presignedPut(key), publicUrl: publicUrl(key) });
   }
 
+  // A video for the team to watch before they answer 发帖: WeChat's CDN can't take it from here (2026-11-07), so the
+  // bot sends this link (page /v/<id>) instead. Server only; not a photo, so no row in the photo list.
+  if (body.action === "presign-video" && server) {
+    const id = randomUUID();
+    return NextResponse.json({ id, uploadUrl: presignedPut(`previews/${id}.mp4`), path: `/v/${id}` });
+  }
+
   if (body.action === "complete") {
     const key = String(body.key ?? "");
     const width = Number(body.width), height = Number(body.height);
