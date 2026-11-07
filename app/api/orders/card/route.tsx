@@ -1,14 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ImageResponse } from "next/og";
+import { getKvClient } from "@/lib/kv";
 import { loadBooks } from "@/lib/books-server";
 import { BookLine } from "@/lib/books";
 import { isAuthenticated, pushTokenMatches } from "@/lib/session";
 
 // The books as one fixed-layout PNG for WeChat (`dt orders card` saves it, the bot sends it), so the bots
-// stop drawing their own. Same numbers as /books. No customer names.
+// stop drawing their own. Same numbers as /books. No customer names. Each sale with its car photo (owner 2026-11-08),
+// the same photos as 总览 (`dt dashboard` puts them in the ops snapshot as order_photos).
 export const dynamic = "force-dynamic";
 
-const W = 1080, PAD = 48, ROW = 46, MAX_ROWS = 14, MAX_FLAGS = 8, FLAG_LINE = 30;
+const W = 1080, PAD = 48, ROW = 84, PHOTO_W = 96, PHOTO_H = 72, MAX_ROWS = 14, MAX_FLAGS = 8, FLAG_LINE = 30;
 // Rough wrapped line count for a flag at 20px across the ~930px box (CJK ≈ 20px, Latin ≈ 11px).
 const flagLines = (s: string) => Math.max(1, Math.ceil(Array.from(s).reduce((w, ch) => w + (ch.charCodeAt(0) > 0x2e80 ? 20 : 10), 0) / 930));
 const C = { bg: "#111318", card: "#1b1f27", text: "#f0f2f5", muted: "#9aa3ae", green: "#58ca84", red: "#e86060",
@@ -29,6 +31,20 @@ async function font(text: string, weight: number) {
   return (await fetch(url)).arrayBuffer();
 }
 
+// photos only from where our cars' photos live (Trade Me's CDN, our R2 bucket), fetched first so one bad photo can't
+// fail the whole picture: a row whose photo didn't come back just has none
+const photoOk = (u?: string | null): u is string => !!u && /^https:\/\/([\w-]+\.)*(tmcdn\.co\.nz|r2\.dev)\//.test(u);
+async function inline(url: string): Promise<string | null> {
+  try {
+    const r = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0 (driftae-ledger)" }, signal: AbortSignal.timeout(6000) });
+    const type = r.headers.get("content-type") ?? "";
+    if (!r.ok || !/^image\/(jpeg|png)/.test(type)) return null;
+    return `data:${type.split(";")[0]};base64,${Buffer.from(await r.arrayBuffer()).toString("base64")}`;
+  } catch {
+    return null;
+  }
+}
+
 function gpCell(l: BookLine) {
   if (!l.complete) return { text: `缺 ${l.missing.join("·")}`, color: C.amber, size: 20 };
   return { text: money(l.gp), color: l.gp < 0 ? C.red : C.green, size: 24 };
@@ -38,9 +54,15 @@ export async function GET(request: NextRequest) {
   if (!isAuthenticated(request) && !pushTokenMatches(request.headers.get("authorization"))) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  const b = await loadBooks();
+  const [b, snap] = await Promise.all([loadBooks(), getKvClient().get("ops:metrics").catch(() => null)]);
+  const orderPhotos = ((snap ?? {}) as { order_photos?: Record<string, string | null> }).order_photos ?? {};
   const t = b.totals;
   const rows = b.lines.slice(0, MAX_ROWS);
+  const photos = new Map<string, string | null>();
+  await Promise.all(rows.map(async (l) => {
+    const u = orderPhotos[l.orderId];
+    photos.set(l.orderId, photoOk(u) ? await inline(u) : null);
+  }));
   const flags = b.lines.flatMap((l) => l.flags.map((f) => `${l.model || l.orderId}：${f}`));
   const shownFlags = flags.slice(0, MAX_FLAGS);
   const missingCount = t.orders - t.complete;
@@ -105,7 +127,7 @@ export async function GET(request: NextRequest) {
 
         <div style={{ ...box, marginTop: 24 }}>
           <div style={{ display: "flex", fontSize: 18, color: C.muted, height: 40, alignItems: "flex-end" }}>
-            <div style={{ width: 440 }}>车型</div>
+            <div style={{ width: 380 + PHOTO_W + 14 }}>车型</div>
             <div style={{ width: 150 }}>售价+运费</div>
             <div style={{ flex: 1 }}>毛利</div>
           </div>
@@ -113,7 +135,12 @@ export async function GET(request: NextRequest) {
             const g = gpCell(l);
             return (
               <div key={l.orderId} style={{ display: "flex", alignItems: "center", height: ROW, fontSize: 24 }}>
-                <div style={{ width: 440, overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis", paddingRight: 16 }}>{l.model || l.orderId}</div>
+                {photos.get(l.orderId) ? (
+                  <img src={photos.get(l.orderId)!} width={PHOTO_W} height={PHOTO_H} style={{ objectFit: "cover", borderRadius: 8, marginRight: 14 }} alt="" />
+                ) : (
+                  <div style={{ width: PHOTO_W, height: PHOTO_H, borderRadius: 8, marginRight: 14, background: C.bg }} />
+                )}
+                <div style={{ width: 380, display: "block", lineClamp: 2, overflow: "hidden", fontSize: 22, lineHeight: "30px", paddingRight: 16 }}>{l.model || l.orderId}</div>
                 <div style={{ width: 150 }}>{money(l.price + l.shipping)}</div>
                 <div style={{ flex: 1, color: g.color, fontSize: g.size }}>{g.text}</div>
               </div>
