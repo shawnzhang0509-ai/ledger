@@ -15,7 +15,7 @@ export type BookLine = {
   flags: string[];          // numbers a person should check on the order page
   airDoor: boolean;         // air freight door to door: a 0 courier cost is real, not missing
   stockId: string | null;   // the stock row this sale came from (or went back to, when returned)
-  returned: boolean;        // the car came back: its purchase cost is on the stock row, the loss stays here
+  returned: boolean;        // the car came back: its costs are on the stock row, not here
 };
 export type Split = { purchase: number; air: number; courier: number; fee: number; gp: number };
 export type BooksReport = {
@@ -37,18 +37,19 @@ function line(o: Order, today: string, dupes: Set<string>, stock: StockItem[]): 
   const from = stock.find((s) => s.orderId === o.orderId) || back;
   const returned = !!back;
   const price = o.sellingPrice || 0, shipping = o.shippingCharge || 0, fee = o.tradeMeFee || 0;
-  const purchase = getPurchaseCostNzd(o), air = o.airFreight || 0, courier = o.courierCost || 0;
+  // a returned car's costs are on its stock row until it sells again (owner 2026-11-07), whatever the sale row still says
+  const purchase = returned ? 0 : getPurchaseCostNzd(o), air = returned ? 0 : o.airFreight || 0, courier = returned ? 0 : o.courierCost || 0;
   const missing: string[] = [];
   if (!purchase && !returned) {
     if (!o.purchaseCostCny) missing.push(COST_LABELS.purchase);
     if (!o.exchangeRate) missing.push(COST_LABELS.rate);
   }
-  if (!air) missing.push(COST_LABELS.air);
+  if (!air && !returned) missing.push(COST_LABELS.air);
   // Our air freight goes door to door (owner 2026-10-21: "这些空运全是直接 door to door"), so a sale with air freight and no
   // courier cost is door to door unless someone marked it "courier". Only then, or with no air freight (sold from NZ
   // stock), is a 0 courier cost a blank to fill.
   const airDoor = o.deliveryMode === "air-door" || (o.deliveryMode !== "courier" && air > 0 && !courier);
-  if (!courier && !airDoor) missing.push(COST_LABELS.courier);   // door-to-door air: no courier cost, not a blank
+  if (!courier && !airDoor && !returned) missing.push(COST_LABELS.courier);   // door-to-door air: no courier cost, not a blank
   const complete = missing.length === 0;
   const gp = r2(price + shipping - purchase - air - fee - courier);
 

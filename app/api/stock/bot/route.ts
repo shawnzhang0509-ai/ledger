@@ -136,13 +136,15 @@ export async function POST(request: NextRequest) {
   const costs = whole
     ? { purchaseCostCny: order.purchaseCostCny, exchangeRate: order.exchangeRate, purchaseCost: purchase }
     : { purchaseCostCny: 0, exchangeRate: 0, purchaseCost: keep };
-  Object.assign(order, { purchaseCostCny: 0, exchangeRate: 0, purchaseCost: r2(purchase - keep) });
+  // owner 2026-11-07: a returned car carries everything spent on it, return included; its next sale takes the difference
+  const air = order.airFreight || 0, courier = order.courierCost || 0;
+  Object.assign(order, { purchaseCostCny: 0, exchangeRate: 0, purchaseCost: r2(purchase - keep), airFreight: 0, courierCost: 0 });
   saveOrder(`returned: $${keep} purchase cost back to stock${filled.length ? `; filled ${filled.join(", ")}` : ""}`);
   const base = ai >= 0 ? stock[ai] : normalizeStock({ id: crypto.randomUUID(), model: order.model, brand: order.brand,
     scale: order.scale, createdAt: now, notes: stamp(by, `recorded from returned sale ${orderId}`) });
-  const item = normalizeStock({ ...base, ...costs, airFreight: 0, courierCost: 0, status: "InStock", location: "NZ",
+  const item = normalizeStock({ ...base, ...costs, airFreight: air, courierCost: courier, status: "InStock", location: "NZ",
     orderId: "", soldAt: "", returnedFrom: orderId, updatedAt: now,
-    notes: addNote(base.notes, stamp(by, `returned from ${orderId}; its air freight and courier stay on that sale as the loss`), note) });
+    notes: addNote(base.notes, stamp(by, `returned from ${orderId}; its air freight and courier came with it`), note) });
   if (ai >= 0) stock[ai] = item; else stock.push(item);
   await kv.set(ORDERS_KEY, orders);
   await kv.set(STOCK_KEY, stock);
