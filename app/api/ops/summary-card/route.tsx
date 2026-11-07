@@ -7,7 +7,7 @@ import { FREIGHT_EST_NZD } from "@/lib/market";
 import { isAuthenticated, pushTokenMatches } from "@/lib/session";
 
 // 总览 (owner 2026-11-07: 一个图解决一个问题，总览就是整体的利润情况): ?part=business is one thing, the profit of all time from
-// the books, with ad money as one cost. Sales, ad detail, ranks, stock and who's waiting are their own cards.
+// the books, with ad money as one cost, and every sale with its photo and profit. Ad detail, ranks, stock and who's waiting are their own cards.
 // ?part=cars (在售) is every live car with its photo (Trade Me's first photo, from the snapshot). Ads and Trade Me come from the
 // ops snapshot driftae-ops pushes every 30 min (`dt dashboard --push`). `dt ops card` saves it, the bot sends it.
 export const dynamic = "force-dynamic";
@@ -16,6 +16,7 @@ type CarRef = { label?: string; product?: string | null; photo?: string | null }
 type Brief = CarRef & { listing_id: number; title: string; price: number | null; views: number; watchers: number };
 type Snap = {
   built?: string;
+  order_photos?: Record<string, string | null>;   // `dt dashboard`: each sale's car photo, by order id
   ads?: { ad: string; window: string; status: string; spend: number; conversations: number; impressions: number }[];
   tm_summary?: {
     live: number; new_views: number; new_watchers: number; top_watched: Brief[];
@@ -117,8 +118,13 @@ export async function GET(request: NextRequest) {
     ["广告费", money(-adSpend)],
     ["利润", money(profit)],
   ] };
-  const openB: Block = { title: "还没算进去", kpis: [], lines: open.length
-    ? [[`${open.length} 单成本没填完（收入 ${money(sum(open, (l) => l.price + l.shipping))}）`, "填完利润才准"]] : [],
+  // every sale with its photo (owner 2026-11-07); the profit of one car is before ads, which aren't per car
+  const photo = (l: (typeof books.lines)[number]) => s.order_photos?.[l.orderId] ?? null;
+  const carsB: Block = { title: "每台车赚了多少", kpis: [], note: "这里还没扣广告费，广告费在上面的表里一起扣。",
+    lines: done.map((l) => [l.model, `${l.returned ? "退货 " : ""}${l.gp < 0 ? "亏" : "赚"} ${money(Math.abs(l.gp))}`, photo(l),
+      `${l.dateSold.slice(5, 10)} · 卖 ${money(l.price + l.shipping)} · 进货 ${money(l.purchase)} · 空运 ${money(l.air)}${l.courier ? ` · 快递 ${money(l.courier)}` : ""} · 费 ${money(l.fee)}`] as Line) };
+  const openB: Block = { title: `还没算进去（${open.length} 单，收入 ${money(sum(open, (l) => l.price + l.shipping))}）`, kpis: [],
+    lines: open.map((l) => [l.model, money(l.price + l.shipping), photo(l), `成本缺：${l.missing.join("、")} · ${l.dateSold.slice(5, 10)}`] as Line),
     empty: "每一单的成本都填完了" };
 
   // Trade Me
@@ -150,7 +156,7 @@ export async function GET(request: NextRequest) {
   const verdictColor = part === "cars" ? (carTodo.length ? C.amber : C.green) : profit < 0 ? C.red : C.green;
 
   // one command, one set of pictures (owner 2026-11-06): 比价, 新品, 哪类车好卖, 新上架 and 没人关注 are their own cards
-  const blocks = part === "cars" ? [trademe, watchB, costB] : [profitB, openB];
+  const blocks = part === "cars" ? [trademe, watchB, costB] : [profitB, carsB, openB];
   for (const b of blocks) b.lines = b.lines.map(wrap);
   const photos = new Map<string, string | null>();
   const wanted = Array.from(new Set(blocks.flatMap((b) => b.lines.map((l) => l[2]).filter((u): u is string => !!u))));
@@ -176,7 +182,7 @@ export async function GET(request: NextRequest) {
     : "这张只看利润。其他的各问各的：账本、广告、库存、排名、分账、在售。全部指令：说「指令」。";
   const allText = [title, sub, verdict, footer,
     ...blocks.flatMap((b) => [b.title, b.empty ?? "", b.note ?? "", ...b.kpis.flatMap((k) => [k[0], k[1]]), ...b.lines.flatMap((l) => [l[0], l[1] ?? "", l[3] ?? ""])]),
-    "0123456789$.,%−—·（）/：…「」+ "].join("");
+    "0123456789$.,%−—·（）/：…「」、+ "].join("");
   const [regular, bold] = await Promise.all([font(allText, 400), font(allText, 700)]);
   const box = { display: "flex", flexDirection: "column" as const, background: C.card, borderRadius: 16, padding: "18px 24px" };
 
