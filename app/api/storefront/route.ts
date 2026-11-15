@@ -5,6 +5,9 @@ import { catalogData } from "@/lib/db";
 // Price = the team's /catalog price, else the live Trade Me price. No names, orders or anything about customers.
 // The server refreshes listing ids every 30 minutes (dt catalog sync → /api/catalog/status), so relists and price
 // changes reach the site without a deploy.
+// 2026-11-15: without this Next 14 served the 2026-11-08 answer for a week (every buy link pointed at an ended listing)
+export const dynamic = "force-dynamic";
+
 const ORIGINS = new Set(["https://www.driftae.com", "https://driftae.com", "http://localhost:4173", "http://localhost:5173"]);
 const LIVE = new Set(["listed", "listed_new", "price_updated"]);
 
