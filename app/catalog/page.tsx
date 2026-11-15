@@ -33,6 +33,7 @@ function Catalog() {
   const [status, setStatus] = useState<Record<string, Status>>({});
   const [costs, setCosts] = useState<Record<string, number | null>>({});
   const [byCost, setByCost] = useState(false);
+  const [missing, setMissing] = useState(false); // owner 2026-11-15: a link (/catalog?missing=1) to only the cars with no 进货价
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
   const [canEdit, setCanEdit] = useState(false);
   const [saving, setSaving] = useState<string | null>(null);
@@ -56,14 +57,18 @@ function Catalog() {
       return [x.id, { price: pr?.price?.toString() ?? "", list: pr?.list_on_trademe ?? false, title: pr?.title ?? "" }];
     })));
   };
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    load();
+    if (new URLSearchParams(window.location.search).get("missing")) setMissing(true);
+  }, []);
 
   const rows = useMemo(() => {
     const s = q.trim().toLowerCase();
-    const list = products.filter((p) => !s || `${p.name} ${p.brand} ${p.id}`.toLowerCase().includes(s));
+    const list = products.filter((p) => (!s || `${p.name} ${p.brand} ${p.id}`.toLowerCase().includes(s))
+      && (!missing || costs[p.id] == null));
     // owner 2026-11-05: sort by the entered cost (dearest first); cars without a cost go last
     return byCost ? [...list].sort((a, b) => (costs[b.id] ?? -1) - (costs[a.id] ?? -1)) : list;
-  }, [products, q, byCost, costs]);
+  }, [products, q, byCost, missing, costs]);
 
   async function save(id: string) {
     const d = drafts[id];
@@ -121,6 +126,10 @@ function Catalog() {
             className="w-full sm:w-80 px-3 py-2 border border-slate-300 rounded-lg text-sm" />
           <label className="flex items-center gap-2 text-sm text-slate-600">
             <input type="checkbox" checked={byCost} onChange={(e) => setByCost(e.target.checked)} /> 按进货价排（贵的在前）
+          </label>
+          <label className="flex items-center gap-2 text-sm text-slate-600">
+            <input type="checkbox" checked={missing} onChange={(e) => setMissing(e.target.checked)} /> 只看没填进货价的
+            {` (${products.filter((p) => costs[p.id] == null).length})`}
           </label>
         </div>
         {error && <p className="text-sm text-red-600">{error}</p>}
