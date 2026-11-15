@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { unstable_noStore as noStore } from "next/cache";
 import { catalogData } from "@/lib/db";
 
 // Public, read-only feed for www.driftae.com: per product only the shop price and the live Trade Me listing id.
@@ -7,6 +8,8 @@ import { catalogData } from "@/lib/db";
 // changes reach the site without a deploy.
 // 2026-11-15: without this Next 14 served the 2026-11-08 answer for a week (every buy link pointed at an ended listing)
 export const dynamic = "force-dynamic";
+export const fetchCache = "force-no-store"; // the Neon driver queries over fetch (POST), which Next 14 cached too
+export const revalidate = 0;
 
 const ORIGINS = new Set(["https://www.driftae.com", "https://driftae.com", "http://localhost:4173", "http://localhost:5173"]);
 const LIVE = new Set(["listed", "listed_new", "price_updated"]);
@@ -17,6 +20,7 @@ function cors(request: NextRequest): Record<string, string> {
 }
 
 export async function GET(request: NextRequest) {
+  noStore();
   try {
     const { prices, status } = await catalogData();
     const out: Record<string, { price?: number; listingId?: string }> = {};
