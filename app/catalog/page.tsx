@@ -32,6 +32,7 @@ function Catalog() {
   const [prices, setPrices] = useState<Record<string, Price>>({});
   const [status, setStatus] = useState<Record<string, Status>>({});
   const [costs, setCosts] = useState<Record<string, number | null>>({});
+  const [skus, setSkus] = useState<Record<string, { sku: string; merged_into: string | null }>>({});
   const [byCost, setByCost] = useState(false);
   const [missing, setMissing] = useState(false); // owner 2026-11-15: a link (/catalog?missing=1) to only the cars with no 进货价
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
@@ -51,6 +52,7 @@ function Catalog() {
     setPrices(Object.fromEntries(c.prices.map((x: Price) => [x.product_id, x])));
     setStatus(Object.fromEntries(c.status.map((x: Status) => [x.product_id, x])));
     setCosts(Object.fromEntries((c.costs ?? []).map((x: { product_id: string; cost_cny: number | null }) => [x.product_id, x.cost_cny])));
+    setSkus(Object.fromEntries((c.numbers ?? []).map((x: { product_id: string; sku: string; merged_into: string | null }) => [x.product_id, x])));
     setCanEdit(Boolean(a.role));
     setDrafts(Object.fromEntries(p.map((x: Product) => {
       const pr = c.prices.find((y: Price) => y.product_id === x.id);
@@ -64,11 +66,11 @@ function Catalog() {
 
   const rows = useMemo(() => {
     const s = q.trim().toLowerCase();
-    const list = products.filter((p) => (!s || `${p.name} ${p.brand} ${p.id}`.toLowerCase().includes(s))
+    const list = products.filter((p) => (!s || `${skus[p.id]?.sku ?? ""} ${p.name} ${p.brand} ${p.id}`.toLowerCase().includes(s))
       && (!missing || costs[p.id] == null));
     // owner 2026-11-05: sort by the entered cost (dearest first); cars without a cost go last
     return byCost ? [...list].sort((a, b) => (costs[b.id] ?? -1) - (costs[a.id] ?? -1)) : list;
-  }, [products, q, byCost, missing, costs]);
+  }, [products, q, byCost, missing, costs, skus]);
 
   async function save(id: string) {
     const d = drafts[id];
@@ -122,7 +124,7 @@ function Catalog() {
           </div>
         </header>
         <div className="flex flex-wrap items-center gap-3">
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="搜车型"
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="搜车型或商品号（D-0012）"
             className="w-full sm:w-80 px-3 py-2 border border-slate-300 rounded-lg text-sm" />
           <label className="flex items-center gap-2 text-sm text-slate-600">
             <input type="checkbox" checked={byCost} onChange={(e) => setByCost(e.target.checked)} /> 按进货价排（贵的在前）
@@ -141,7 +143,11 @@ function Catalog() {
               <div key={p.id} className="p-3 grid gap-3 md:grid-cols-[4rem_1fr_15rem] items-start">
                 {p.image ? <img src={p.image} alt="" className="w-16 h-12 object-cover rounded" /> : <div />}
                 <div className="min-w-0 space-y-1">
-                  <div className="text-sm font-medium text-slate-800">{p.name}</div>
+                  <div className="text-sm font-medium text-slate-800">
+                    {skus[p.id] && <span className="mr-2 font-mono text-slate-500">{skus[p.id].sku}</span>}
+                    {p.name}
+                    {skus[p.id]?.merged_into && <span className="ml-2 text-xs text-amber-700">和 {skus[p.id].merged_into} 是同一台</span>}
+                  </div>
                   <div className="text-xs">
                     <span className={tone}>{label}</span>
                     {st?.listing_id && (

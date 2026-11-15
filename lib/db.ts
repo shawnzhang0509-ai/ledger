@@ -149,12 +149,19 @@ async function ensureCatalog(sql: NonNullable<ReturnType<typeof client>>) {
   await sql`CREATE TABLE IF NOT EXISTS catalog_status (
     product_id text PRIMARY KEY, state text NOT NULL, listing_id bigint, tm_price numeric(10,2),
     message text, title text, at text NOT NULL)`;
+  // 商品号 (owner 2026-11-16, product master table step 1): every car gets D-0001… once and keeps it, so people and
+  // bots name a car by number instead of matching titles. Numbered in catalogue order the first time the server
+  // reports it (saveCatalogStatus); merged_into marks a duplicate entry that is the same car as another number.
+  await sql`CREATE TABLE IF NOT EXISTS product_numbers (
+    n serial PRIMARY KEY, product_id text UNIQUE NOT NULL, merged_into int, created_at timestamptz NOT NULL DEFAULT now())`;
   catalogReady = true;
 }
 
 export type CatalogCost = { product_id: string; cost_cny: number | null };
+export type ProductNumber = { product_id: string; sku: string; merged_into: string | null };
 
-export async function catalogData(): Promise<{ prices: CatalogPrice[]; status: CatalogStatus[]; costs: CatalogCost[] }> {
+export async function catalogData(): Promise<{ prices: CatalogPrice[]; status: CatalogStatus[]; costs: CatalogCost[];
+                                               numbers: ProductNumber[] }> {
   const sql = client();
   if (!sql) throw new Error("DATABASE_NOT_CONFIGURED");
   await ensureCatalog(sql);
@@ -164,7 +171,11 @@ export async function catalogData(): Promise<{ prices: CatalogPrice[]; status: C
   const status = await sql`SELECT product_id, state, listing_id::text AS listing_id, tm_price::float AS tm_price, message, title, at
     FROM catalog_status`;
   const costs = await sql`SELECT product_id, cost_cny::float AS cost_cny FROM catalog_costs`;
-  return { prices: prices as CatalogPrice[], status: status as CatalogStatus[], costs: costs as CatalogCost[] };
+  const numbers = await sql`SELECT product_id, 'D-' || lpad(n::text, 4, '0') AS sku,
+      CASE WHEN merged_into IS NULL THEN NULL ELSE 'D-' || lpad(merged_into::text, 4, '0') END AS merged_into
+    FROM product_numbers ORDER BY n`;
+  return { prices: prices as CatalogPrice[], status: status as CatalogStatus[], costs: costs as CatalogCost[],
+           numbers: numbers as ProductNumber[] };
 }
 
 export async function setCatalogCost(productId: string, costCny: number | null, by: string) {
@@ -194,6 +205,12 @@ export async function saveCatalogStatus(rows: CatalogStatus[]) {
       VALUES (${r.product_id}, ${r.state}, ${r.listing_id}, ${r.tm_price}, ${r.message}, ${r.title}, ${r.at})
       ON CONFLICT (product_id) DO UPDATE SET state = EXCLUDED.state, listing_id = EXCLUDED.listing_id,
         tm_price = EXCLUDED.tm_price, message = EXCLUDED.message, title = EXCLUDED.title, at = EXCLUDED.at`));
+  // new cars get the next 商品号, in the order the server sent them (its catalogue order)
+  const ids = rows.map((r) => r.product_id);
+  await sql`INSERT INTO product_numbers (product_id)
+            SELECT id FROM unnest(${ids}::text[]) WITH ORDINALITY AS t(id, i)
+            WHERE NOT EXISTS (SELECT 1 FROM product_numbers p WHERE p.product_id = t.id) ORDER BY i
+            ON CONFLICT (product_id) DO NOTHING`;   // filtered first: a conflict would still use up a number
 }
 
 // ---------- where a Messenger conversation came from (ad / m.me?ref=), from Meta's webhook ----------
