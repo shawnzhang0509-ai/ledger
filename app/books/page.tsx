@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { AuthGate } from "@/components/auth-gate";
 import { BooksReport, BookLine } from "@/lib/books";
 import { getStatusLabel } from "@/lib/labels";
+import { ProductPhoto, photoFor } from "@/lib/product-photo";
 import { RefreshCw } from "lucide-react";
 
 // Each sale opened up: where the money went, which costs are still blank, what looks wrong.
@@ -23,6 +24,8 @@ export default function BooksPage() {
 function BooksContent() {
   const [b, setB] = useState<BooksReport | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [products, setProducts] = useState<ProductPhoto[]>([]);
+  useEffect(() => { fetch("/api/products").then((r) => (r.ok ? r.json() : [])).then(setProducts).catch(() => {}); }, []);
   const load = () => {
     setError(null);
     fetch("/api/orders/report")
@@ -102,7 +105,7 @@ function BooksContent() {
                 </tr>
               </thead>
               <tbody>
-                {b.lines.map((l) => <Row key={l.orderId} l={l} />)}
+                {b.lines.map((l) => <Row key={l.orderId} l={l} photo={photoFor(products, l.model)} />)}
               </tbody>
             </table>
           </div>
@@ -127,13 +130,17 @@ function BooksContent() {
   );
 }
 
-function Row({ l }: { l: BookLine }) {
+function Row({ l, photo }: { l: BookLine; photo: string }) {
   const cost = (v: number, label: string) =>
     l.missing.includes(label) ? <span className="text-amber-600">缺</span> : money(v);
   return (
     <tr className={`border-b last:border-0 ${l.flags.length ? "bg-amber-50" : ""}`}>
       <td className="py-2 pr-4 text-slate-500">{l.dateSold}</td>
-      <td className="pr-4 max-w-[280px] truncate" title={l.orderId}>
+      <td className="pr-4 max-w-[320px] truncate" title={l.orderId}>
+        {photo ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={photo} alt="" loading="lazy" className="inline-block w-16 h-12 object-cover rounded-md bg-slate-200 mr-2 align-middle" />
+        ) : <span className="inline-block w-16 h-12 rounded-md bg-slate-200 mr-2 align-middle" />}
         {l.model || l.orderId}
         {l.stockId && <a href={`/stock#${l.stockId}`} className="ml-2 text-xs text-blue-700 hover:underline">{l.returned ? "已退回库存" : "来自库存"}</a>}
       </td>

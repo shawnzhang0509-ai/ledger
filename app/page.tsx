@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { AuthGate } from "@/components/auth-gate";
 import type { BookLine, BooksReport } from "@/lib/books";
+import { photoFor } from "@/lib/product-photo";
 
 // 首页 (owner 2026-11-16: 「一眼看到全局」, dyslexia): big numbers, car photos and colour bars, few words.
 // Same numbers as 账本 (/api/orders/report), 商品与价格 (/api/catalog) and 运营看板 (/api/metrics); nothing is computed elsewhere.
@@ -11,7 +12,6 @@ type Status = { product_id: string; state: string; listing_id: string | null; tm
 type TmRow = { listing_id: number; watchers: number };
 
 const money = (n: number) => `$${Math.round(n).toLocaleString("en-NZ")}`;
-const words = (s: string) => new Set((s.toLowerCase().match(/[a-z0-9]+/g) ?? []).filter((w) => !["diecast", "model", "car", "1", "18", "the"].includes(w)));
 const BAR = [
   { key: "purchase", label: "进货", color: "#94a3b8" },
   { key: "ship", label: "运费", color: "#60a5fa" },
@@ -45,15 +45,6 @@ function HomeContent() {
   }, []);
 
   const byId = Object.fromEntries(products.map((p) => [p.id, p]));
-  const photoFor = (model: string) => {
-    const w = words(model);
-    let best: Product | null = null, score = 1;
-    for (const p of products) {
-      const n = Array.from(words(p.name)).filter((x) => w.has(x)).length;
-      if (n > score) { best = p; score = n; }
-    }
-    return best?.image ?? "";
-  };
 
   const month = new Date().toLocaleDateString("en-CA", { timeZone: "Pacific/Auckland" }).slice(0, 7);
   const lines = (books?.lines ?? []).filter((l) => l.status !== "Cancelled" && l.price > 0);
@@ -96,7 +87,7 @@ function HomeContent() {
             {BAR.map((b) => <span key={b.key} className="flex items-center gap-1"><i className="w-2.5 h-2.5 rounded-sm" style={{ background: b.color }} />{b.label}</span>)}
           </div>
           <div className="space-y-2">
-            {lines.slice(0, 4).map((l) => <Sold key={l.orderId} l={l} photo={photoFor(l.model)} />)}
+            {lines.slice(0, 4).map((l) => <Sold key={l.orderId} l={l} photo={photoFor(products, l.model)} />)}
             {!books && <p className="text-slate-500">读取中…</p>}
           </div>
         </Section>
