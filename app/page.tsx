@@ -1,41 +1,27 @@
 "use client";
 
-import { useState } from "react";
-import { useOrders } from "@/hooks/use-orders";
+import { useEffect, useState } from "react";
 import { AuthGate } from "@/components/auth-gate";
-import { StatsCards } from "@/components/stats-cards";
-import { OrderForm } from "@/components/order-form";
-import { ImportExport } from "@/components/import-export";
-import { Order, STATUS_OPTIONS, SAMPLE_ORDERS } from "@/lib/data";
-import { FIELD_LABELS, getStatusLabel } from "@/lib/labels";
-import { Plus, Search, Trash2, Edit2, Filter, Package } from "lucide-react";
+import type { BookLine, BooksReport } from "@/lib/books";
 
-const TABLE_COLUMNS = [
-  { key: "orderId", label: FIELD_LABELS.orderId },
-  { key: "dateSold", label: FIELD_LABELS.dateSold },
-  { key: "customer", label: FIELD_LABELS.customer },
-  { key: "model", label: FIELD_LABELS.model },
-  { key: "brand", label: FIELD_LABELS.brand },
-  { key: "scale", label: FIELD_LABELS.scale },
-  { key: "status", label: FIELD_LABELS.status },
-  { key: "sellingPrice", label: FIELD_LABELS.sellingPrice },
-  { key: "grossProfit", label: FIELD_LABELS.grossProfit },
+// 首页 (owner 2026-11-16: 「一眼看到全局」, dyslexia): big numbers, car photos and colour bars, few words.
+// Same numbers as 账本 (/api/orders/report), 商品与价格 (/api/catalog) and 运营看板 (/api/metrics); nothing is computed elsewhere.
+type Product = { id: string; name: string; image: string };
+type Status = { product_id: string; state: string; listing_id: string | null; tm_price: number | null };
+type TmRow = { listing_id: number; watchers: number };
+
+const money = (n: number) => `$${Math.round(n).toLocaleString("en-NZ")}`;
+const words = (s: string) => new Set((s.toLowerCase().match(/[a-z0-9]+/g) ?? []).filter((w) => !["diecast", "model", "car", "1", "18", "the"].includes(w)));
+const BAR = [
+  { key: "purchase", label: "进货", color: "#94a3b8" },
+  { key: "ship", label: "运费", color: "#60a5fa" },
+  { key: "fee", label: "手续费", color: "#fbbf24" },
+  { key: "gp", label: "赚", color: "#10b981" },
 ] as const;
-
-function statusBadgeClass(status: Order["status"]) {
-  switch (status) {
-    case "Completed":
-      return "bg-emerald-100 text-emerald-700";
-    case "Cancelled":
-      return "bg-red-100 text-red-700";
-    case "Shipped":
-      return "bg-blue-100 text-blue-700";
-    case "Paid":
-      return "bg-violet-100 text-violet-700";
-    default:
-      return "bg-amber-100 text-amber-700";
-  }
-}
+const LINKS = [
+  ["/orders", "订单"], ["/books", "账本"], ["/catalog", "商品与价格"], ["/ops", "运营看板"],
+  ["/split", "分账"], ["/stock", "库存"], ["/market", "比价"], ["/photos", "上传照片"], ["/team", "bot 能做什么"],
+];
 
 export default function Home() {
   return (
@@ -46,290 +32,149 @@ export default function Home() {
 }
 
 function HomeContent() {
-  const { orders, loading, error, createOrder, updateOrder, deleteOrder, refresh } = useOrders();
-  const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<string>("All");
-  const [sortBy, setSortBy] = useState<string>("dateSold");
-  const [sortDesc, setSortDesc] = useState(true);
-  const [showForm, setShowForm] = useState(false);
-  const [editingOrder, setEditingOrder] = useState<Order | null>(null);
+  const [books, setBooks] = useState<BooksReport | null>(null);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [status, setStatus] = useState<Status[]>([]);
+  const [tm, setTm] = useState<TmRow[]>([]);
 
-  const filteredOrders = orders
-    .filter((o) => {
-      const matchesSearch =
-        !search ||
-        o.orderId.toLowerCase().includes(search.toLowerCase()) ||
-        o.customer.toLowerCase().includes(search.toLowerCase()) ||
-        o.model.toLowerCase().includes(search.toLowerCase()) ||
-        o.brand.toLowerCase().includes(search.toLowerCase());
-      const matchesStatus = statusFilter === "All" || o.status === statusFilter;
-      return matchesSearch && matchesStatus;
-    })
-    .sort((a, b) => {
-      let valA = a[sortBy as keyof Order] ?? "";
-      let valB = b[sortBy as keyof Order] ?? "";
-      if (typeof valA === "string") valA = valA.toLowerCase();
-      if (typeof valB === "string") valB = valB.toLowerCase();
-      if (valA < valB) return sortDesc ? 1 : -1;
-      if (valA > valB) return sortDesc ? -1 : 1;
-      return 0;
-    });
+  useEffect(() => {
+    fetch("/api/orders/report").then((r) => (r.ok ? r.json() : null)).then(setBooks).catch(() => {});
+    fetch("/api/products").then((r) => (r.ok ? r.json() : [])).then(setProducts).catch(() => {});
+    fetch("/api/catalog").then((r) => (r.ok ? r.json() : { status: [] })).then((c) => setStatus(c.status ?? [])).catch(() => {});
+    fetch("/api/metrics").then((r) => (r.ok ? r.json() : null)).then((m) => setTm(m?.latest?.trademe ?? [])).catch(() => {});
+  }, []);
 
-  const handleSort = (field: string) => {
-    if (sortBy === field) {
-      setSortDesc(!sortDesc);
-    } else {
-      setSortBy(field);
-      setSortDesc(true);
+  const byId = Object.fromEntries(products.map((p) => [p.id, p]));
+  const photoFor = (model: string) => {
+    const w = words(model);
+    let best: Product | null = null, score = 1;
+    for (const p of products) {
+      const n = Array.from(words(p.name)).filter((x) => w.has(x)).length;
+      if (n > score) { best = p; score = n; }
     }
+    return best?.image ?? "";
   };
 
-  const handleSubmit = async (formData: any) => {
-    if (editingOrder) {
-      await updateOrder(formData);
-    } else {
-      await createOrder(formData);
-    }
-    setShowForm(false);
-    setEditingOrder(null);
-  };
+  const month = new Date().toLocaleDateString("en-CA", { timeZone: "Pacific/Auckland" }).slice(0, 7);
+  const lines = (books?.lines ?? []).filter((l) => l.status !== "Cancelled" && l.price > 0);
+  const thisMonth = lines.filter((l) => l.dateSold.startsWith(month));
+  const listed = status.filter((s) => s.state === "listed");
+  const noPrice = status.filter((s) => s.state === "no_price" && byId[s.product_id]);
+  const watchers = Object.fromEntries(tm.map((t) => [String(t.listing_id), t.watchers ?? 0]));
+  const wall = [...listed].sort((a, b) => (watchers[b.listing_id ?? ""] ?? 0) - (watchers[a.listing_id ?? ""] ?? 0));
 
-  const handleDelete = async (id: string) => {
-    if (!confirm("确定删除此订单？")) return;
-    await deleteOrder(id);
-  };
-
-  const addSampleData = async () => {
-    for (const sample of SAMPLE_ORDERS) {
-      await createOrder(sample);
-    }
-  };
-
-  const SortIcon = ({ field }: { field: string }) => {
-    if (sortBy !== field) return <span className="text-slate-300 ml-1">↕</span>;
-    return <span className="text-slate-600 ml-1">{sortDesc ? "↓" : "↑"}</span>;
-  };
-
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <p className="text-slate-500">加载中...</p>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="min-h-screen flex items-center justify-center p-4">
-        <div className="bg-white border border-red-200 text-red-600 rounded-xl p-6 max-w-md text-center shadow-sm">
-          {error}
-        </div>
-      </div>
-    );
-  }
+  const perMonth: Record<string, number> = {};
+  for (const l of lines) perMonth[l.dateSold.slice(0, 7)] = (perMonth[l.dateSold.slice(0, 7)] ?? 0) + l.gp;
+  const months = Object.keys(perMonth).sort().slice(-5);
+  const top = Math.max(1, ...months.map((k) => perMonth[k]));
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <div className="max-w-7xl mx-auto p-4 lg:p-8">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-6">
-          <div>
-            <h1 className="text-2xl font-bold text-slate-900">模型车销售记账</h1>
-            <p className="text-slate-500 text-sm mt-1">订单管理 · 利润统计 · 数据导入导出</p>
-          </div>
-          <div className="flex flex-wrap items-center gap-3">
-            <a href="/books" className="px-4 py-2 border border-slate-300 rounded-lg hover:bg-white transition text-sm font-medium text-slate-700">
-              账本
-            </a>
-            <a href="/stock" className="px-4 py-2 border border-slate-300 rounded-lg hover:bg-white transition text-sm font-medium text-slate-700">
-              库存
-            </a>
-            <a href="/split" className="px-4 py-2 border border-slate-300 rounded-lg hover:bg-white transition text-sm font-medium text-slate-700">
-              分账
-            </a>
-            <a href="/ops" className="px-4 py-2 border border-slate-300 rounded-lg hover:bg-white transition text-sm font-medium text-slate-700">
-              运营看板
-            </a>
-            <a href="/catalog" className="px-4 py-2 border border-slate-300 rounded-lg hover:bg-white transition text-sm font-medium text-slate-700">
-              商品与价格
-            </a>
-            <a href="/market" className="px-4 py-2 border border-slate-300 rounded-lg hover:bg-white transition text-sm font-medium text-slate-700">
-              市场
-            </a>
-            <a href="/photos" className="px-4 py-2 border border-slate-300 rounded-lg hover:bg-white transition text-sm font-medium text-slate-700">
-              上传照片
-            </a>
-            <a href="/team" className="px-4 py-2 border border-slate-300 rounded-lg hover:bg-white transition text-sm font-medium text-slate-700">
-              bot 能做什么
-            </a>
-            <ImportExport orders={orders} onImport={refresh} />
-            <button
-              onClick={() => { setEditingOrder(null); setShowForm(true); }}
-              className="flex items-center gap-2 px-4 py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-700 transition font-medium shadow-sm"
-            >
-              <Plus className="w-4 h-4" /> 新增订单
-            </button>
-          </div>
+    <div className="min-h-screen bg-slate-100 text-slate-900">
+      <div className="max-w-md mx-auto p-4 space-y-6">
+        <h1 className="text-2xl font-extrabold">Driftae · {Number(month.slice(5))}月</h1>
+
+        <div className="grid grid-cols-3 gap-2">
+          <Kpi href="/books" n={books ? String(thisMonth.length) : "…"} label="卖了几台" />
+          <Kpi href="/books" n={books ? money(thisMonth.reduce((t, l) => t + l.gp, 0)) : "…"} label="赚了" green />
+          <Kpi href="/ops" n={status.length ? String(listed.length) : "…"} label="在卖" />
         </div>
 
-        <StatsCards orders={orders} />
+        {noPrice.length > 0 && (
+          <Section title="要你们做">
+            <a href="/catalog" className="block bg-red-100 rounded-2xl p-3">
+              <div className="text-lg font-bold text-red-700">{noPrice.length} 台车没定价 →</div>
+              <div className="text-sm text-red-900 mb-2">网站有，Trade Me 没挂</div>
+              <div className="flex gap-1.5 overflow-hidden">
+                {noPrice.slice(0, 6).map((s) => <Photo key={s.product_id} src={byId[s.product_id]?.image} className="w-12 h-12 rounded-lg shrink-0" />)}
+              </div>
+            </a>
+          </Section>
+        )}
 
-        <div className="bg-white rounded-xl shadow-sm border border-slate-200 mb-6 overflow-hidden">
-          <div className="p-4 flex flex-col sm:flex-row gap-3 border-b border-slate-100">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-              <input
-                type="text"
-                placeholder="搜索订单编号、客户、车型、品牌..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-500 text-sm"
-              />
-            </div>
-            <div className="flex items-center gap-2">
-              <Filter className="w-4 h-4 text-slate-500 shrink-0" />
-              <select
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-                className="px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-500 text-sm"
-              >
-                <option value="All">全部状态</option>
-                {STATUS_OPTIONS.map((s) => (
-                  <option key={s} value={s}>{getStatusLabel(s)}</option>
-                ))}
-              </select>
-            </div>
+        <Section title="最近卖出">
+          <div className="flex gap-3 text-xs text-slate-600 -mt-1 mb-2">
+            {BAR.map((b) => <span key={b.key} className="flex items-center gap-1"><i className="w-2.5 h-2.5 rounded-sm" style={{ background: b.color }} />{b.label}</span>)}
           </div>
+          <div className="space-y-2">
+            {lines.slice(0, 4).map((l) => <Sold key={l.orderId} l={l} photo={photoFor(l.model)} />)}
+            {!books && <p className="text-slate-500">读取中…</p>}
+          </div>
+        </Section>
 
-          {orders.length === 0 ? (
-            <div className="p-16 text-center">
-              <div className="inline-flex p-4 bg-slate-100 rounded-full mb-4">
-                <Package className="w-8 h-8 text-slate-400" />
-              </div>
-              <p className="text-slate-500 mb-4">暂无订单数据</p>
-              <button
-                onClick={addSampleData}
-                className="px-4 py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-700 transition text-sm font-medium"
-              >
-                添加示例数据
-              </button>
+        <Section title="在卖 · 🔥 = 很多人关注">
+          <div className="grid grid-cols-3 gap-1.5">
+            {wall.slice(0, 12).map((s) => {
+              const w = watchers[s.listing_id ?? ""] ?? 0;
+              return (
+                <a key={s.product_id} href={`https://www.trademe.co.nz/a/listing/${s.listing_id}`} target="_blank" rel="noopener noreferrer" className="relative block">
+                  <Photo src={byId[s.product_id]?.image} className="w-full aspect-square rounded-xl" />
+                  {s.tm_price != null && <span className="absolute left-1 bottom-1 bg-slate-900/80 text-white text-xs px-1.5 rounded">${s.tm_price}</span>}
+                  {w >= 3 && <span className="absolute right-1 top-1 bg-white text-xs px-1 rounded">🔥 {w}</span>}
+                </a>
+              );
+            })}
+          </div>
+          {wall.length > 12 && <a href="/ops" className="block text-center text-sm text-blue-700 mt-2">全部 {wall.length} 台 →</a>}
+        </Section>
+
+        {months.length > 0 && (
+          <Section title="每月赚多少">
+            <div className="flex items-end gap-2 bg-white rounded-2xl p-3 h-40">
+              {months.map((k) => (
+                <div key={k} className="flex-1 text-center">
+                  <div className="text-xs text-slate-500">{money(perMonth[k])}</div>
+                  <div className="bg-emerald-500 rounded-t-md" style={{ height: `${Math.max(2, (perMonth[k] / top) * 90)}px` }} />
+                  <div className="text-sm mt-1">{Number(k.slice(5))}月</div>
+                </div>
+              ))}
             </div>
-          ) : (
-            <>
-              <div className="hidden lg:block overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead className="bg-slate-50 border-b border-slate-200">
-                    <tr>
-                      {TABLE_COLUMNS.map((col) => (
-                        <th
-                          key={col.key}
-                          onClick={() => handleSort(col.key)}
-                          className="px-4 py-3 text-left font-medium text-slate-700 cursor-pointer hover:bg-slate-100 select-none whitespace-nowrap"
-                        >
-                          {col.label}
-                          <SortIcon field={col.key} />
-                        </th>
-                      ))}
-                      <th className="px-4 py-3 text-right font-medium text-slate-700">操作</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {filteredOrders.map((order) => (
-                      <tr key={order.id} className="hover:bg-slate-50 transition-colors">
-                        <td className="px-4 py-3 font-mono text-xs">{order.orderId}</td>
-                        <td className="px-4 py-3 text-slate-600 whitespace-nowrap">{order.dateSold}</td>
-                        <td className="px-4 py-3">{order.customer}</td>
-                        <td className="px-4 py-3 max-w-xs truncate" title={order.model}>{order.model}</td>
-                        <td className="px-4 py-3">{order.brand}</td>
-                        <td className="px-4 py-3 text-slate-500">{order.scale}</td>
-                        <td className="px-4 py-3">
-                          <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${statusBadgeClass(order.status)}`}>
-                            {getStatusLabel(order.status)}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap">${order.sellingPrice.toFixed(2)}</td>
-                        <td className={`px-4 py-3 font-medium whitespace-nowrap ${order.grossProfit >= 0 ? "text-emerald-600" : "text-red-600"}`}>
-                          ${order.grossProfit.toFixed(2)}
-                        </td>
-                        <td className="px-4 py-3 text-right">
-                          <div className="flex items-center justify-end gap-1">
-                            <button
-                              onClick={() => { setEditingOrder(order); setShowForm(true); }}
-                              className="p-1.5 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition"
-                              title="编辑"
-                            >
-                              <Edit2 className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={() => handleDelete(order.id)}
-                              className="p-1.5 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition"
-                              title="删除"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+          </Section>
+        )}
 
-              <div className="lg:hidden divide-y divide-slate-100">
-                {filteredOrders.map((order) => (
-                  <div key={order.id} className="p-4">
-                    <div className="flex items-start justify-between mb-2 gap-3">
-                      <div className="min-w-0">
-                        <div className="font-mono text-xs text-slate-500">{order.orderId}</div>
-                        <div className="font-medium truncate">{order.model}</div>
-                        <div className="text-sm text-slate-600">{order.customer} · {order.brand} · {order.scale}</div>
-                      </div>
-                      <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium shrink-0 ${statusBadgeClass(order.status)}`}>
-                        {getStatusLabel(order.status)}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between text-sm">
-                      <div className="text-slate-500">{order.dateSold}</div>
-                      <div className="flex items-center gap-3">
-                        <span>售价: <span className="font-medium">${order.sellingPrice.toFixed(2)}</span></span>
-                        <span className={order.grossProfit >= 0 ? "text-emerald-600" : "text-red-600"}>
-                          毛利: ${order.grossProfit.toFixed(2)}
-                        </span>
-                      </div>
-                    </div>
-                    <div className="flex gap-2 mt-3">
-                      <button
-                        onClick={() => { setEditingOrder(order); setShowForm(true); }}
-                        className="flex-1 py-1.5 text-sm border border-slate-300 rounded-lg hover:bg-slate-50 transition"
-                      >
-                        编辑
-                      </button>
-                      <button
-                        onClick={() => handleDelete(order.id)}
-                        className="flex-1 py-1.5 text-sm border border-red-200 text-red-600 rounded-lg hover:bg-red-50 transition"
-                      >
-                        删除
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </>
-          )}
-        </div>
-
-        <div className="text-center text-sm text-slate-400">
-          共 {filteredOrders.length} 条订单
-          {statusFilter !== "All" && `（筛选：${getStatusLabel(statusFilter as Order["status"])}）`}
+        <div className="grid grid-cols-3 gap-2 pb-6">
+          {LINKS.map(([href, label]) => (
+            <a key={href} href={href} className="bg-white rounded-xl py-3 text-center text-sm font-medium text-slate-700">{label}</a>
+          ))}
         </div>
       </div>
-
-      {showForm && (
-        <OrderForm
-          order={editingOrder}
-          onSubmit={handleSubmit}
-          onClose={() => { setShowForm(false); setEditingOrder(null); }}
-        />
-      )}
     </div>
+  );
+}
+
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  return <section><h2 className="text-xl font-bold mb-2.5">{title}</h2>{children}</section>;
+}
+
+function Kpi({ n, label, green, href }: { n: string; label: string; green?: boolean; href: string }) {
+  return (
+    <a href={href} className="bg-white rounded-2xl py-3 text-center">
+      <div className={`text-2xl font-bold ${green ? "text-emerald-600" : ""}`}>{n}</div>
+      <div className="text-sm text-slate-500">{label}</div>
+    </a>
+  );
+}
+
+function Photo({ src, className }: { src?: string; className: string }) {
+  // eslint-disable-next-line @next/next/no-img-element
+  return src ? <img src={src} alt="" loading="lazy" className={`object-cover bg-slate-200 ${className}`} /> : <div className={`bg-slate-200 ${className}`} />;
+}
+
+function Sold({ l, photo }: { l: BookLine; photo: string }) {
+  const parts = { purchase: l.purchase, ship: l.air + l.courier, fee: l.fee, gp: Math.max(l.gp, 0) };
+  const total = Object.values(parts).reduce((t, v) => t + v, 0) || 1;
+  return (
+    <a href="/books" className="flex gap-2.5 bg-white rounded-2xl p-2">
+      <Photo src={photo} className="w-24 h-[72px] rounded-lg shrink-0" />
+      <div className="flex-1 min-w-0">
+        <div className="font-semibold truncate">{l.model}</div>
+        <div className="flex justify-between my-1">
+          <span>卖 {money(l.price)}</span>
+          <b className={l.complete ? "text-emerald-600" : "text-slate-400"}>{l.complete ? `赚 ${money(l.gp)}` : "缺数"}</b>
+        </div>
+        <div className="flex h-2.5 rounded-full overflow-hidden">
+          {BAR.map((b) => <i key={b.key} style={{ width: `${(parts[b.key] / total) * 100}%`, background: b.color }} />)}
+        </div>
+      </div>
+    </a>
   );
 }

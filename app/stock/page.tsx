@@ -60,7 +60,8 @@ function StockContent() {
             <p className="text-slate-500 text-sm mt-1">每台车：在哪 · 落地成本 · 卖给了哪一单</p>
           </div>
           <div className="flex flex-wrap items-center gap-4 text-sm">
-            <a href="/" className="text-slate-500 hover:text-slate-800">订单</a>
+            <a href="/" className="text-slate-500 hover:text-slate-800">首页</a>
+            <a href="/orders" className="text-slate-500 hover:text-slate-800">订单</a>
             <a href="/books" className="text-slate-500 hover:text-slate-800">账本</a>
             <button onClick={load} className="flex items-center gap-1 text-slate-500 hover:text-slate-800"><RefreshCw className="w-4 h-4" />刷新</button>
             <button onClick={() => setEditing({ status: "InStock", location: "NZ" })}
