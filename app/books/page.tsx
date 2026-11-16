@@ -97,7 +97,7 @@ function BooksContent() {
             <table className="w-full text-sm whitespace-nowrap">
               <thead>
                 <tr className="text-left text-slate-500 border-b">
-                  {["日期", "车型", "状态", "售价", "运费收入", "进货", "空运", "快递", "Trade Me", "毛利"].map((h) => <th key={h} className="py-2 pr-4 font-medium">{h}</th>)}
+                  {["日期", "车型", "状态", "售价", "运费收入", "进货 ¥", "汇率", "进货", "空运", "快递", "Trade Me", "毛利"].map((h) => <th key={h} className="py-2 pr-4 font-medium">{h}</th>)}
                 </tr>
               </thead>
               <tbody>
@@ -139,6 +139,8 @@ function Row({ l }: { l: BookLine }) {
       <td className="pr-4">{getStatusLabel(l.status)}</td>
       <td className="pr-4">{money(l.price)}</td>
       <td className="pr-4">{money(l.shipping)}</td>
+      <td className="pr-4">{l.cny ? `¥${l.cny}` : "—"}</td>
+      <td className="pr-4">{l.rate || "—"}</td>
       <td className="pr-4">{l.missing.includes("进货价") || l.missing.includes("汇率") ? <span className="text-amber-600">缺</span> : money(l.purchase)}</td>
       <td className="pr-4">{cost(l.air, "空运费")}</td>
       <td className="pr-4">{l.airDoor && !l.courier ? <span className="text-slate-500">空运门到门</span> : cost(l.courier, "快递成本")}</td>
