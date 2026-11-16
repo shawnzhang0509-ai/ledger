@@ -11,6 +11,7 @@ export function AuthGate({ children, allow = "admin" }: { children: React.ReactN
   const [error, setError] = useState("");
   const [authed, setAuthed] = useState(false);
   const [checking, setChecking] = useState(true);
+  const [needAdmin, setNeedAdmin] = useState(false);
 
   useEffect(() => {
     fetch("/api/auth")
@@ -33,8 +34,10 @@ export function AuthGate({ children, allow = "admin" }: { children: React.ReactN
   }, []);
 
   function enter(role: Role | undefined) {
+    // logged in with the view-only password: ask for the admin one here instead of bouncing back to /ops (owner 2026-11-16)
     if (allow === "admin" && role !== "admin") {
-      window.location.href = "/ops"; // colleagues only see the ops dashboard
+      if (needAdmin) setError("这个密码只能看运营看板，这页要管理员密码");
+      setNeedAdmin(true);
       return;
     }
     setAuthed(true);
@@ -88,7 +91,7 @@ export function AuthGate({ children, allow = "admin" }: { children: React.ReactN
           </div>
           <div>
             <h1 className="text-xl font-bold text-slate-800">模型车销售记账</h1>
-            <p className="text-sm text-slate-500">请输入访问密码</p>
+            <p className="text-sm text-slate-500">{needAdmin ? "这页要管理员密码" : "请输入访问密码"}</p>
           </div>
         </div>
         <form onSubmit={handleSubmit}>
@@ -107,6 +110,7 @@ export function AuthGate({ children, allow = "admin" }: { children: React.ReactN
             进入系统
           </button>
         </form>
+        {needAdmin && <a href="/ops" className="block text-center text-sm text-slate-500 mt-4 hover:underline">回运营看板</a>}
       </div>
     </div>
   );
