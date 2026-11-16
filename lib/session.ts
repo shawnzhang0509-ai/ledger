@@ -31,13 +31,13 @@ function same(a: string, b: string): boolean {
   return timingSafeEqual(sha256(a), sha256(b));
 }
 
-/** APP_PASSWORD = admin (orders + ops). VIEWER_PASSWORD = colleagues (ops dashboard only). */
+/** One password for the team (owner 2026-11-16: 「用一个密码」): APP_PASSWORD and the old VIEWER_PASSWORD both open everything. */
 export function passwordRole(input: unknown): Role | null {
   const admin = process.env.APP_PASSWORD;
   const viewer = process.env.VIEWER_PASSWORD;
   if (typeof input !== "string" || !admin) return null;
   if (same(input, admin)) return "admin";
-  if (viewer && viewer !== admin && same(input, viewer)) return "viewer";
+  if (viewer && same(input, viewer)) return "admin";
   return null;
 }
 
