@@ -24,7 +24,8 @@ export type PriceLine = {
   product: string; name: string; brand: string | null; ref: string | null; ref_status: RefRow["status"]; colour: string | null;
   our_price: number | null; our_price_from: OurPrice["from"] | null; goods_cost_nzd: number | null;
   margin_est_nzd: number | null;           // our price − goods cost − FREIGHT_EST_NZD (an estimate, not the books)
-  cost_cny: number | null;               // the team's entered cost (catalog_costs); null: goods_cost_nzd falls back to the RMB in the image path
+  cost_cny: number | null;               // the team's entered cost (catalog_costs; a range's high end); null: goods_cost_nzd falls back to the RMB in the image path
+  cost_range: [number, number] | null;   // when the cost was reported as a range (¥250–300)
   bayhobbies: { price: number; match: "ref" | "model"; title: string; url: string | null } | null;
   vs_bayhobbies_pct: number | null;        // > 0: we are dearer than Bay Hobbies
   market: { price: number; source: string } | null;   // cheapest same-car (same ref) price: Bay Hobbies or another Trade Me seller
@@ -57,7 +58,7 @@ const pct = (ours: number | null, theirs: number | null) => (ours && theirs ? Ma
 
 export function marketReport(input: {
   products: Product[]; ours: Record<string, OurPrice>; refs: RefRow[]; prices: PriceRow[]; seen: SeenRow[];
-  radar: RadarRow[]; demand: Demand | null; nzdPerCny: number | null; costs?: Record<string, number>; now?: Date;
+  radar: RadarRow[]; demand: Demand | null; nzdPerCny: number | null; costs?: Record<string, number>; costRanges?: Record<string, [number, number]>; now?: Date;
 }): MarketReport {
   const now = input.now ?? new Date();
   const refOf = new Map(input.refs.map((r) => [r.product_id, r]));
@@ -90,6 +91,7 @@ export function marketReport(input: {
       product: p.id, name: p.name, brand: r?.brand ?? p.brand ?? null, ref: r?.ref ?? null, ref_status: r?.status ?? "unknown", colour: r?.colour ?? null,
       our_price: our?.price ?? null, our_price_from: our?.from ?? null,
       cost_cny: input.costs?.[p.id] ?? null,
+      cost_range: input.costRanges?.[p.id] ?? null,
       goods_cost_nzd: goodsCost,
       margin_est_nzd: goodsCost != null && our ? Math.round(our.price - goodsCost - FREIGHT_EST_NZD) : null,
       bayhobbies: bh ? { price: bh.price_nzd as number, match: bh.match === "ref" ? "ref" : "model", title: bh.title, url: bh.url } : null,

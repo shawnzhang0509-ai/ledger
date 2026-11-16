@@ -119,8 +119,8 @@ function Prices({ s, run }: { s: MarketReport; run: Run }) {
               <td className={`pr-3 font-semibold ${(p.vs_bayhobbies_pct ?? 0) > 15 ? "text-red-600" : "text-emerald-600"}`}>
                 {p.vs_bayhobbies_pct == null ? "—" : `${p.vs_bayhobbies_pct > 0 ? "+" : ""}${p.vs_bayhobbies_pct}%`}</td>
               <td className="pr-3 whitespace-nowrap text-slate-500">{nz(p.goods_cost_nzd)}{" "}
-                <button onClick={() => { const cny = prompt("进货价（人民币，留空 = 清除）", p.cost_cny != null ? String(p.cost_cny) : ""); if (cny !== null) run({ action: "cost", product_id: p.product, cny: cny.trim() }); }}
-                  className="text-blue-600 hover:underline">{p.cost_cny != null ? `¥${p.cost_cny}` : "填"}</button></td>
+                <button onClick={() => { const cny = prompt("进货价（人民币，可以填区间 250-300，留空 = 清除）", p.cost_range ? p.cost_range.join("-") : p.cost_cny != null ? String(p.cost_cny) : ""); if (cny !== null) run({ action: "cost", product_id: p.product, cny: cny.trim() }); }}
+                  className="text-blue-600 hover:underline">{p.cost_range ? `¥${p.cost_range[0]}–${p.cost_range[1]}` : p.cost_cny != null ? `¥${p.cost_cny}` : "填"}</button></td>
               <td className={`pr-3 ${p.margin_est_nzd != null && p.margin_est_nzd < 0 ? "text-red-600" : "text-slate-500"}`}>{nz(p.margin_est_nzd)}</td>
               <td className="text-xs">
                 {p.others.map((o) => (

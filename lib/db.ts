@@ -146,6 +146,9 @@ async function ensureCatalog(sql: NonNullable<ReturnType<typeof client>>) {
     title text, updated_at timestamptz NOT NULL DEFAULT now(), updated_by text NOT NULL)`;
   await sql`CREATE TABLE IF NOT EXISTS catalog_costs (
     product_id text PRIMARY KEY, cost_cny numeric(10,2), updated_at timestamptz NOT NULL DEFAULT now(), updated_by text NOT NULL)`;
+  // owner 2026-11-16: an ordinary car's 进货价 can be a range (¥250–300); the exact cost goes on the order when it sells.
+  // cost_cny is then the low end, cost_cny_max the high end (null = an exact price)
+  await sql`ALTER TABLE catalog_costs ADD COLUMN IF NOT EXISTS cost_cny_max numeric(10,2)`;
   await sql`CREATE TABLE IF NOT EXISTS catalog_status (
     product_id text PRIMARY KEY, state text NOT NULL, listing_id bigint, tm_price numeric(10,2),
     message text, title text, at text NOT NULL)`;
@@ -157,7 +160,7 @@ async function ensureCatalog(sql: NonNullable<ReturnType<typeof client>>) {
   catalogReady = true;
 }
 
-export type CatalogCost = { product_id: string; cost_cny: number | null };
+export type CatalogCost = { product_id: string; cost_cny: number | null; cost_cny_max: number | null };
 export type ProductNumber = { product_id: string; sku: string; merged_into: string | null };
 
 export async function catalogData(): Promise<{ prices: CatalogPrice[]; status: CatalogStatus[]; costs: CatalogCost[];
@@ -170,7 +173,7 @@ export async function catalogData(): Promise<{ prices: CatalogPrice[]; status: C
     FROM catalog_prices`;
   const status = await sql`SELECT product_id, state, listing_id::text AS listing_id, tm_price::float AS tm_price, message, title, at
     FROM catalog_status`;
-  const costs = await sql`SELECT product_id, cost_cny::float AS cost_cny FROM catalog_costs`;
+  const costs = await sql`SELECT product_id, cost_cny::float AS cost_cny, cost_cny_max::float AS cost_cny_max FROM catalog_costs`;
   const numbers = await sql`SELECT product_id, 'D-' || lpad(n::text, 4, '0') AS sku,
       CASE WHEN merged_into IS NULL THEN NULL ELSE 'D-' || lpad(merged_into::text, 4, '0') END AS merged_into
     FROM product_numbers ORDER BY n`;
@@ -178,13 +181,15 @@ export async function catalogData(): Promise<{ prices: CatalogPrice[]; status: C
            numbers: numbers as ProductNumber[] };
 }
 
-export async function setCatalogCost(productId: string, costCny: number | null, by: string) {
+export async function setCatalogCost(productId: string, costCny: number | null, by: string, costCnyMax: number | null = null) {
   const sql = client();
   if (!sql) throw new Error("DATABASE_NOT_CONFIGURED");
   await ensureCatalog(sql);
-  await sql`INSERT INTO catalog_costs (product_id, cost_cny, updated_by, updated_at)
-            VALUES (${productId}, ${costCny}, ${by}, now())
-            ON CONFLICT (product_id) DO UPDATE SET cost_cny = EXCLUDED.cost_cny, updated_by = EXCLUDED.updated_by, updated_at = now()`;
+  const max = costCny != null && costCnyMax != null && costCnyMax > costCny ? costCnyMax : null;
+  await sql`INSERT INTO catalog_costs (product_id, cost_cny, cost_cny_max, updated_by, updated_at)
+            VALUES (${productId}, ${costCny}, ${max}, ${by}, now())
+            ON CONFLICT (product_id) DO UPDATE SET cost_cny = EXCLUDED.cost_cny, cost_cny_max = EXCLUDED.cost_cny_max,
+              updated_by = EXCLUDED.updated_by, updated_at = now()`;
 }
 
 export async function setCatalogPrice(p: Omit<CatalogPrice, "updated_at">) {
