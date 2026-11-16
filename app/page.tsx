@@ -122,11 +122,13 @@ function HomeContent() {
           </Section>
         )}
 
-        <div className="grid grid-cols-3 gap-2 pb-6">
+        <div className="grid grid-cols-3 gap-2">
           {LINKS.map(([href, label]) => (
             <a key={href} href={href} className="bg-white rounded-xl py-3 text-center text-sm font-medium text-slate-700">{label}</a>
           ))}
         </div>
+
+        <ForeverLink />
       </div>
     </div>
   );
@@ -167,5 +169,30 @@ function Sold({ l, photo }: { l: BookLine; photo: string }) {
         </div>
       </div>
     </a>
+  );
+}
+
+// owner 2026-11-17: a link to keep in WeChat that always gets straight in, no password
+function ForeverLink() {
+  const [url, setUrl] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const make = () => fetch("/api/auth/forever").then((r) => r.json()).then((d) => setUrl(d.url ?? null)).catch(() => {});
+  const copy = async () => {
+    if (!url) return;
+    try { await navigator.clipboard.writeText(url); setCopied(true); } catch { /* the link is shown; long-press to copy */ }
+  };
+  return (
+    <div className="bg-white rounded-2xl p-3 mb-6 text-sm">
+      {!url ? (
+        <button onClick={make} className="w-full py-2.5 rounded-xl bg-slate-800 text-white font-medium">生成我的永久链接</button>
+      ) : (
+        <div className="space-y-2">
+          <div className="font-medium">发到微信收藏，以后点它直接进，不用密码</div>
+          <div className="break-all text-slate-600 bg-slate-100 rounded-lg p-2 select-all">{url}</div>
+          <button onClick={copy} className="w-full py-2.5 rounded-xl bg-emerald-600 text-white font-medium">{copied ? "已复制 ✓" : "复制"}</button>
+          <div className="text-red-700">别转到群里：拿到的人都能看全部</div>
+        </div>
+      )}
+    </div>
   );
 }
