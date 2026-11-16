@@ -315,6 +315,7 @@ function OpsContent() {
               </tr>
             ))}
           </Table>
+          <a href="/books" className="inline-block text-sm text-blue-700 hover:underline">每单怎么算的（人民币进价、汇率、运费、手续费）→ 账本</a>
         </Section>
       </div>
     </div>
