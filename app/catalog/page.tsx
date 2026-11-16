@@ -27,6 +27,8 @@ export default function CatalogPage() {
   );
 }
 
+const COST_RANGES = ["100-150", "150-200", "200-250", "250-300", "300-350", "350-400", "400-450", "450-500"];
+
 function Catalog() {
   const [products, setProducts] = useState<Product[]>([]);
   const [prices, setPrices] = useState<Record<string, Price>>({});
@@ -92,8 +94,9 @@ function Catalog() {
     load();
   }
 
-  async function editCost(id: string) {
-    const v = prompt("进货价（人民币，可以填区间 250-300，留空 = 清除）", costText(id) ?? "");
+  // owner 2026-11-16: pick a range from a list; 「其它」 still lets you type one
+  async function editCost(id: string, picked: string) {
+    const v = picked === "other" ? prompt("进货价（人民币，比如 520 或 500-600）", costText(id) ?? "") : picked;
     if (v === null) return;
     const res = await fetch("/api/market/bot", {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "cost", product_id: id, cny: v.trim() }),
@@ -160,7 +163,13 @@ function Catalog() {
                     )}
                     {st?.message && st.state !== "listed" && <span className="text-slate-500"> · {st.message}</span>}
                     <> · 进货价 {canEdit ? (
-                      <button onClick={() => editCost(p.id)} className="text-blue-700 hover:underline">{costs[p.id] != null ? `¥${costText(p.id)}` : "填"}</button>
+                      <select value={costText(p.id) ?? ""} onChange={(e) => editCost(p.id, e.target.value)}
+                        className="text-blue-700 bg-transparent border border-slate-200 rounded px-1 py-0.5">
+                        <option value="">{costs[p.id] != null ? "清除" : "选区间"}</option>
+                        {costText(p.id) && !COST_RANGES.includes(costText(p.id)!) && <option value={costText(p.id)!}>¥{costText(p.id)}</option>}
+                        {COST_RANGES.map((r) => <option key={r} value={r}>¥{r.replace("-", "–")}</option>)}
+                        <option value="other">其它（自己填）</option>
+                      </select>
                     ) : (costs[p.id] != null ? `¥${costText(p.id)}` : "—")}</>
                   </div>
                   <input value={d.title} disabled={!canEdit} onChange={(e) => set(p.id, { title: e.target.value })} maxLength={80}
