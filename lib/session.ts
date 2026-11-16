@@ -75,6 +75,22 @@ export function viewLinkExpiry(t: string | null): number | null {
   return Number(exp);
 }
 
+// Forever link (owner 2026-11-17: 「链接存到微信里永不过期，不用再输密码」): /go?k=<mac>, made on the home page by someone
+// logged in. Opening it logs in as admin (one password, so one role). Signed with the session key, so it survives
+// deploys and stops working only when APP_PASSWORD changes. Whoever holds it sees everything: keep it out of groups.
+const FOREVER = "forever:v1";
+
+export function foreverLinkKey(): string | null {
+  const key = signingKey();
+  return key ? sign(FOREVER, key) : null;
+}
+
+export function foreverLinkValid(k: string | null): boolean {
+  const expected = foreverLinkKey();
+  if (!expected || !k || k.length !== expected.length) return false;
+  return timingSafeEqual(Buffer.from(expected), Buffer.from(k));
+}
+
 function cookieRole(key: Buffer, token: string | undefined): Role | null {
   if (!token) return null;
   const [payload, mac] = token.split(".");
