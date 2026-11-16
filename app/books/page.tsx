@@ -45,7 +45,8 @@ function BooksContent() {
             <p className="text-slate-500 text-sm mt-1">每单的钱花在哪 · 缺哪些成本 · 哪些数看着不对</p>
           </div>
           <div className="flex flex-wrap items-center gap-4 text-sm">
-            <a href="/" className="text-slate-500 hover:text-slate-800">订单</a>
+            <a href="/" className="text-slate-500 hover:text-slate-800">首页</a>
+            <a href="/orders" className="text-slate-500 hover:text-slate-800">订单</a>
             <a href="/stock" className="text-slate-500 hover:text-slate-800">库存</a>
             <a href="/split" className="text-slate-500 hover:text-slate-800">分账</a>
             <a href="/ops" className="text-slate-500 hover:text-slate-800">运营看板</a>
