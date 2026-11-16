@@ -27,7 +27,13 @@ export async function loadMarketReport() {
   const ours: Record<string, OurPrice> = {};
   for (const s of cat.status) if (s.tm_price) ours[s.product_id] = { price: Number(s.tm_price), from: "trademe" };
   for (const p of cat.prices) if (p.price != null) ours[p.product_id] = { price: Number(p.price), from: "catalog" };
+  // a range counts at its high end, so margins are never overstated
   const costs: Record<string, number> = {};
-  for (const c of cat.costs) if (c.cost_cny != null) costs[c.product_id] = Number(c.cost_cny);
-  return marketReport({ products, ours, ...rows, demand: demand ?? null, nzdPerCny: cny, costs });
+  const costRanges: Record<string, [number, number]> = {};
+  for (const c of cat.costs) {
+    if (c.cost_cny == null) continue;
+    costs[c.product_id] = Number(c.cost_cny_max ?? c.cost_cny);
+    if (c.cost_cny_max != null) costRanges[c.product_id] = [Number(c.cost_cny), Number(c.cost_cny_max)];
+  }
+  return marketReport({ products, ours, ...rows, demand: demand ?? null, nzdPerCny: cny, costs, costRanges });
 }

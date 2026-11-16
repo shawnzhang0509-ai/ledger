@@ -76,9 +76,13 @@ export async function POST(request: NextRequest) {
       return (await setRadar(String(b.id ?? ""), { supplier_cny: cny, supplier_url: s(b.url, 1000) }, by)) ? NextResponse.json({ success: true }) : bad("No such candidate", 404);
     }
     case "cost": {
-      const cny = b.cny === null || b.cny === "" ? null : num(b.cny);
-      if (!ID.test(String(b.product_id ?? "")) || (cny != null && (cny <= 0 || cny > 100000)) || (b.cny != null && b.cny !== "" && cny == null)) return bad("Need product_id and cny (or empty to clear)");
-      await setCatalogCost(b.product_id, cny, by);
+      // "250-300" (or cny + cny_max) is a range: owner 2026-11-16, ordinary cars are reported as a range
+      const range = typeof b.cny === "string" ? b.cny.trim().match(/^(\d+(?:\.\d+)?)\s*[-–~～至到]\s*(\d+(?:\.\d+)?)$/) : null;
+      const cny = range ? num(range[1]) : b.cny === null || b.cny === "" ? null : num(b.cny);
+      const max = range ? num(range[2]) : num(b.cny_max);
+      if (!ID.test(String(b.product_id ?? "")) || (cny != null && (cny <= 0 || cny > 100000)) || (b.cny != null && b.cny !== "" && cny == null)
+          || (max != null && (cny == null || max < cny || max > 100000))) return bad("Need product_id and cny (a price, a range like 250-300, or empty to clear)");
+      await setCatalogCost(b.product_id, cny, by, max);
       return NextResponse.json({ success: true });
     }
     case "radar-status": {

@@ -32,6 +32,7 @@ function Catalog() {
   const [prices, setPrices] = useState<Record<string, Price>>({});
   const [status, setStatus] = useState<Record<string, Status>>({});
   const [costs, setCosts] = useState<Record<string, number | null>>({});
+  const [costMax, setCostMax] = useState<Record<string, number | null>>({});
   const [skus, setSkus] = useState<Record<string, { sku: string; merged_into: string | null }>>({});
   const [byCost, setByCost] = useState(false);
   const [missing, setMissing] = useState(false); // owner 2026-11-15: a link (/catalog?missing=1) to only the cars with no 进货价
@@ -52,6 +53,7 @@ function Catalog() {
     setPrices(Object.fromEntries(c.prices.map((x: Price) => [x.product_id, x])));
     setStatus(Object.fromEntries(c.status.map((x: Status) => [x.product_id, x])));
     setCosts(Object.fromEntries((c.costs ?? []).map((x: { product_id: string; cost_cny: number | null }) => [x.product_id, x.cost_cny])));
+    setCostMax(Object.fromEntries((c.costs ?? []).map((x: { product_id: string; cost_cny_max: number | null }) => [x.product_id, x.cost_cny_max])));
     setSkus(Object.fromEntries((c.numbers ?? []).map((x: { product_id: string; sku: string; merged_into: string | null }) => [x.product_id, x])));
     setCanEdit(Boolean(a.role));
     setDrafts(Object.fromEntries(p.map((x: Product) => {
@@ -91,7 +93,7 @@ function Catalog() {
   }
 
   async function editCost(id: string) {
-    const v = prompt("进货价（人民币，留空 = 清除）", costs[id] != null ? String(costs[id]) : "");
+    const v = prompt("进货价（人民币，可以填区间 250-300，留空 = 清除）", costText(id) ?? "");
     if (v === null) return;
     const res = await fetch("/api/market/bot", {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "cost", product_id: id, cny: v.trim() }),
@@ -100,6 +102,8 @@ function Catalog() {
     load();
   }
 
+  // owner 2026-11-16: a range is fine for an ordinary car (exact cost goes on the order when it sells)
+  const costText = (id: string) => costs[id] == null ? null : costMax[id] != null ? `${costs[id]}-${costMax[id]}` : String(costs[id]);
   const set = (id: string, patch: Partial<Draft>) => setDrafts((all) => ({ ...all, [id]: { ...all[id], ...patch } }));
   const changed = (id: string) => {
     const d = drafts[id], p = prices[id];
@@ -156,8 +160,8 @@ function Catalog() {
                     )}
                     {st?.message && st.state !== "listed" && <span className="text-slate-500"> · {st.message}</span>}
                     <> · 进货价 {canEdit ? (
-                      <button onClick={() => editCost(p.id)} className="text-blue-700 hover:underline">{costs[p.id] != null ? `¥${costs[p.id]}` : "填"}</button>
-                    ) : (costs[p.id] != null ? `¥${costs[p.id]}` : "—")}</>
+                      <button onClick={() => editCost(p.id)} className="text-blue-700 hover:underline">{costs[p.id] != null ? `¥${costText(p.id)}` : "填"}</button>
+                    ) : (costs[p.id] != null ? `¥${costText(p.id)}` : "—")}</>
                   </div>
                   <input value={d.title} disabled={!canEdit} onChange={(e) => set(p.id, { title: e.target.value })} maxLength={80}
                     placeholder={st?.title ? `Trade Me 标题：${st.title}` : "Trade Me 标题（留空自动生成）"}
