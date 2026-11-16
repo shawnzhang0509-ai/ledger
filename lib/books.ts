@@ -9,7 +9,7 @@ export const COST_LABELS = { purchase: "进货价", rate: "汇率", air: "空运
 
 export type BookLine = {
   orderId: string; dateSold: string; model: string; status: Order["status"];
-  price: number; shipping: number; fee: number; purchase: number; air: number; courier: number; gp: number;
+  price: number; shipping: number; fee: number; cny: number; rate: number; purchase: number; air: number; courier: number; gp: number;
   complete: boolean;        // every cost is in, so gp is a real profit
   missing: string[];        // labels of the costs still blank
   flags: string[];          // numbers a person should check on the order page
@@ -69,7 +69,7 @@ function line(o: Order, today: string, dupes: Set<string>, stock: StockItem[]): 
     flags.push(`待处理已超过 ${PENDING_DAYS} 天：客人付款了吗？`);
 
   return { orderId: o.orderId, dateSold: o.dateSold, model: (o.model || "").trim(), status: o.status,
-    price, shipping, fee, purchase, air, courier, gp, complete, missing, flags, airDoor, stockId: from?.id || null, returned };
+    price, shipping, fee, cny: returned ? 0 : o.purchaseCostCny || 0, rate: o.exchangeRate || 0, purchase, air, courier, gp, complete, missing, flags, airDoor, stockId: from?.id || null, returned };
 }
 
 function daysBetween(a: string, b: string) {
