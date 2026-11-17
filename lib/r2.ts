@@ -10,7 +10,7 @@ const enc = (s: string) => encodeURIComponent(s).replace(/[!'()*]/g, (c) => "%" 
 /** AWS Signature V4 query-string presigning (generic, so it can be checked against AWS's published example). */
 export function presign(opts: {
   method: string; host: string; path: string; region: string; accessKeyId: string; secretAccessKey: string;
-  expires: number; now?: Date;
+  expires: number; now?: Date; query?: Record<string, string>;
 }): string {
   const now = opts.now ?? new Date();
   const amzDate = now.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
@@ -22,6 +22,7 @@ export function presign(opts: {
     "X-Amz-Date": amzDate,
     "X-Amz-Expires": String(opts.expires),
     "X-Amz-SignedHeaders": "host",
+    ...(opts.query ?? {}),
   };
   const qs = Object.keys(query).sort().map((k) => `${enc(k)}=${enc(query[k])}`).join("&");
   const path = opts.path.split("/").map(enc).join("/");
@@ -64,4 +65,43 @@ export async function deleteObject(key: string): Promise<boolean> {
 export function publicUrl(key: string) {
   const c = r2Config();
   return c ? `${c.publicBase}/${key.split("/").map(enc).join("/")}` : null;
+}
+
+/** Every key under `prefix` (ListObjectsV2, server side). */
+export async function listKeys(prefix: string): Promise<string[] | null> {
+  const c = r2Config();
+  if (!c) return null;
+  const keys: string[] = [];
+  let token = "";
+  for (;;) {
+    const query: Record<string, string> = { "list-type": "2", prefix, ...(token ? { "continuation-token": token } : {}) };
+    const url = presign({
+      method: "GET", host: `${c.account}.r2.cloudflarestorage.com`, path: `/${c.bucket}`, region: "auto",
+      accessKeyId: c.accessKeyId, secretAccessKey: c.secret, expires: 60, query,
+    });
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const xml = await res.text();
+    const unxml = (s: string) => s.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, "&");
+    keys.push(...Array.from(xml.matchAll(/<Key>([^<]*)<\/Key>/g), (m) => unxml(m[1])));
+    const next = xml.match(/<NextContinuationToken>([^<]*)<\/NextContinuationToken>/);
+    if (!/<IsTruncated>true<\/IsTruncated>/.test(xml) || !next) return keys;
+    token = unxml(next[1]);
+  }
+}
+
+/** Copy one object to a new key: read it through the public URL, PUT it with a presigned URL (server side). */
+export async function copyObject(from: string, to: string): Promise<boolean> {
+  const c = r2Config();
+  const src = publicUrl(from);
+  if (!c || !src) return false;
+  const got = await fetch(src);
+  if (!got.ok) return false;
+  const url = presign({
+    method: "PUT", host: `${c.account}.r2.cloudflarestorage.com`, path: `/${c.bucket}/${to}`, region: "auto",
+    accessKeyId: c.accessKeyId, secretAccessKey: c.secret, expires: 300,
+  });
+  const put = await fetch(url, { method: "PUT", body: await got.arrayBuffer(),
+                                 headers: { "Content-Type": got.headers.get("content-type") ?? "application/octet-stream" } });
+  return put.ok;
 }
