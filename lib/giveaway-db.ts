@@ -33,8 +33,8 @@ export type Via = (typeof VIA)[number];
 export function maskName(raw: string) {
   const parts = raw.trim().split(/\s+/).filter(Boolean);
   if (!parts.length) return "***";
-  if (parts.length === 1) return `${[...parts[0]].slice(0, 2).join("")}***`;
-  return `${[...parts[0]][0]}*** ${[...parts[parts.length - 1]][0].toUpperCase()}.`;
+  if (parts.length === 1) return `${Array.from(parts[0]).slice(0, 2).join("")}***`;
+  return `${Array.from(parts[0])[0]}*** ${Array.from(parts[parts.length - 1])[0].toUpperCase()}.`;
 }
 
 export type Draw = { month: string; product_id: string | null; prize: string; prize_value: number | null; image: string | null;
