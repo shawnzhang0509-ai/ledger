@@ -65,8 +65,11 @@ export async function POST(request: NextRequest) {
   }
   if (b.action === "enter") {
     const list = Array.isArray(b.entries) ? b.entries.slice(0, 500) : [];
-    const clean = list.map((e: Record<string, unknown>) => ({ id: s(e?.id, 120), name: s(e?.name, 80), via: e?.via as Via }))
-      .filter((e: { id: string | null; name: string | null; via: Via }) => e.id && e.name && VIA.includes(e.via));
+    const clean: { id: string; name: string; via: Via }[] = [];
+    for (const e of list as Record<string, unknown>[]) {
+      const id = s(e?.id, 120), name = s(e?.name, 80), via = e?.via as Via;
+      if (id && name && VIA.includes(via)) clean.push({ id, name, via });
+    }
     if (!clean.length) return bad(`entries: [{id, name, via: ${VIA.join("|")}}]`);
     const r = await addEntries(month, clean, by);
     return "error" in r ? bad(r.error as string, 409) : NextResponse.json({ success: true, added: r.added, given: clean.length });

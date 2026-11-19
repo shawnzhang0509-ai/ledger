@@ -54,7 +54,7 @@ export async function loadDraw(month?: string) {
     : await q`SELECT * FROM giveaway_draws ORDER BY month DESC LIMIT 1`;
   if (!rows.length) return null;
   const draw = toDraw(rows[0]);
-  const entries = (await q`SELECT id, display, via FROM giveaway_entries WHERE month = ${draw.month} AND voided IS NULL ORDER BY id`) as Entry[];
+  const entries = (await q`SELECT id, display, via FROM giveaway_entries WHERE month = ${draw.month} AND voided IS NULL ORDER BY id`) as unknown as Entry[];
   return { draw, entries };
 }
 
