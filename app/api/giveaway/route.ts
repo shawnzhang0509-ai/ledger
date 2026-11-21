@@ -2,9 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { unstable_noStore as noStore } from "next/cache";
 import { addEntries, drawWinner, loadDraw, setDraw, VIA, Via, voidEntry } from "@/lib/giveaway-db";
 import { pushTokenMatches, sessionRole } from "@/lib/session";
+import { addSubscriber } from "@/lib/db";
+import { cleanEmail, newToken } from "@/lib/subscribe";
 
 // The monthly draw. GET is public for www.driftae.com/giveaway: prize, end time, masked entries, the winner once drawn
-// (entry ids stay here; the page gets positions only). POST is the bots (`dt giveaway …`) and the team's pages.
+// (entry ids stay here; the page gets positions only). POST is the bots (`dt giveaway …`) and the team's pages, plus the
+// page's own entry form (action "join"): name + email + one consent box. The point of the draw is the email list
+// (owner 2026-11-21), so an entry is also a subscriber; the box says so. One entry per email per month.
 export const dynamic = "force-dynamic";
 export const fetchCache = "force-no-store";
 export const revalidate = 0;
@@ -14,9 +18,40 @@ const s = (v: unknown, n = 200) => (typeof v === "string" && v.trim() ? v.trim()
 const bad = (error: string, status = 400) => NextResponse.json({ error }, { status });
 const MONTH = /^\d{4}-\d{2}$/;
 
+const CONSENT = "Giveaway form: \"Enter me in the draw and email me new arrivals and deals from DRIFTAE. Unsubscribe anytime.\"";
+
 function cors(request: NextRequest): Record<string, string> {
   const origin = request.headers.get("origin") ?? "";
-  return ORIGINS.has(origin) ? { "Access-Control-Allow-Origin": origin, Vary: "Origin" } : { Vary: "Origin" };
+  return ORIGINS.has(origin)
+    ? { "Access-Control-Allow-Origin": origin, "Access-Control-Allow-Methods": "GET, POST", "Access-Control-Allow-Headers": "Content-Type", Vary: "Origin" }
+    : { Vary: "Origin" };
+}
+
+export function OPTIONS(request: NextRequest) {
+  return new NextResponse(null, { status: 204, headers: cors(request) });
+}
+
+/** The public entry form. Says the same thing whether the email was new or already in. */
+async function join(request: NextRequest, b: Record<string, unknown>) {
+  const headers = cors(request);
+  if (!headers["Access-Control-Allow-Origin"]) return NextResponse.json({ error: "Forbidden" }, { status: 403, headers });
+  if (b.website) return NextResponse.json({ ok: true }, { headers });          // honeypot: bots fill every field
+  const email = cleanEmail(b.email), name = s(b.name, 60);
+  if (!email || !name || b.consent !== true) {
+    return NextResponse.json({ error: "Enter your name and a valid email, and tick the box" }, { status: 400, headers });
+  }
+  try {
+    const found = await loadDraw();
+    if (!found || found.draw.winner || new Date(found.draw.ends_at) <= new Date()) {
+      return NextResponse.json({ error: "Entries are closed. The next draw opens soon." }, { status: 409, headers });
+    }
+    await addSubscriber({ email, source: "giveaway", consent_text: CONSENT, added_by: "website", token: newToken() });
+    const r = await addEntries(found.draw.month, [{ id: `web:${found.draw.month}:${email}`, name, via: "Website" }], "website");
+    if ("error" in r) return NextResponse.json({ error: r.error }, { status: 409, headers });
+    return NextResponse.json({ ok: true, month: found.draw.month }, { headers });
+  } catch {
+    return NextResponse.json({ error: "Please try again later" }, { status: 503, headers });
+  }
 }
 
 export async function GET(request: NextRequest) {
@@ -43,11 +78,12 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  const b = await request.json().catch(() => null);
+  if (!b || typeof b !== "object") return bad("Bad body");
+  if (b.action === "join") return join(request, b);
   const server = pushTokenMatches(request.headers.get("authorization"));
   const role = server ? null : sessionRole(request);
   if (!server && !role) return bad("Unauthorized", 401);
-  const b = await request.json().catch(() => null);
-  if (!b || typeof b !== "object") return bad("Bad body");
   const by = server ? `bot:${(s(b.by, 40) ?? "server").replace(/[^\w一-鿿-]/g, "")}` : `page:${role}`;
   const month = s(b.month, 7);
   if (!month || !MONTH.test(month)) return bad("month is YYYY-MM");
@@ -82,5 +118,5 @@ export async function POST(request: NextRequest) {
     const r = await drawWinner(month, by);
     return "error" in r ? NextResponse.json(r, { status: 409 }) : NextResponse.json({ success: true, winner: r.winner });
   }
-  return bad("action set|enter|void|draw");
+  return bad("action join|set|enter|void|draw");
 }
