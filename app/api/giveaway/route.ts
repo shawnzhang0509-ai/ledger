@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { unstable_noStore as noStore } from "next/cache";
-import { addEntries, drawWinner, loadDraw, setDraw, VIA, Via, voidEntry } from "@/lib/giveaway-db";
+import { addEntries, drawWinner, joinDraw, loadDraw, setDraw, VIA, Via, voidEntry, winnerContact } from "@/lib/giveaway-db";
 import { pushTokenMatches, sessionRole } from "@/lib/session";
 import { addSubscriber } from "@/lib/db";
 import { cleanEmail, newToken } from "@/lib/subscribe";
@@ -37,6 +37,8 @@ async function join(request: NextRequest, b: Record<string, unknown>) {
   if (!headers["Access-Control-Allow-Origin"]) return NextResponse.json({ error: "Forbidden" }, { status: 403, headers });
   if (b.website) return NextResponse.json({ ok: true }, { headers });          // honeypot: bots fill every field
   const email = cleanEmail(b.email), name = s(b.name, 60);
+  const ig = s(b.instagram, 40)?.replace(/^@+/, "").replace(/[^\w.]/g, "").slice(0, 30) || null;
+  const ref = s(b.ref, 12)?.replace(/[^A-Za-z0-9]/g, "") || null;
   if (!email || !name || b.consent !== true) {
     return NextResponse.json({ error: "Enter your name and a valid email, and tick the box" }, { status: 400, headers });
   }
@@ -46,9 +48,9 @@ async function join(request: NextRequest, b: Record<string, unknown>) {
       return NextResponse.json({ error: "Entries are closed. The next draw opens soon." }, { status: 409, headers });
     }
     await addSubscriber({ email, source: "giveaway", consent_text: CONSENT, added_by: "website", token: newToken() });
-    const r = await addEntries(found.draw.month, [{ id: `web:${found.draw.month}:${email}`, name, via: "Website" }], "website");
+    const r = await joinDraw(found.draw.month, { email, name, ig, ref });
     if ("error" in r) return NextResponse.json({ error: r.error }, { status: 409, headers });
-    return NextResponse.json({ ok: true, month: found.draw.month }, { headers });
+    return NextResponse.json({ ok: true, month: found.draw.month, ...r }, { headers });
   } catch {
     return NextResponse.json({ error: "Please try again later" }, { status: 503, headers });
   }
@@ -70,7 +72,7 @@ export async function GET(request: NextRequest) {
               ends_at: draw.ends_at, drawn_at: draw.drawn_at },
       entries: entries.map((e) => ({ display: e.display, via: e.via, ...(team ? { id: e.id } : {}) })),
       winner: winnerIndex >= 0 ? { index: winnerIndex, display: entries[winnerIndex].display, via: entries[winnerIndex].via,
-                                   ...(team ? { id: draw.winner } : {}) } : null,
+                                   ...(team ? { id: draw.winner, contact: await winnerContact(draw.month, draw.winner as string) } : {}) } : null,
     }, { headers: { ...headers, "Cache-Control": "no-store" } });
   } catch {
     return NextResponse.json({ error: "Please try again later" }, { status: 503, headers });

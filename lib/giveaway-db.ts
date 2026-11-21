@@ -1,5 +1,5 @@
 import { neon } from "@neondatabase/serverless";
-import { randomInt } from "crypto";
+import { randomBytes, randomInt } from "crypto";
 
 // The monthly draw (owner 2026-11-19), shown on www.driftae.com/giveaway. Free to enter (NZ Gambling Act sales
 // promotion rules: no entry fee, rules fixed before it starts). Only a masked name is ever stored ("J*** S."): the
@@ -22,11 +22,15 @@ async function sql() {
   await q`CREATE TABLE IF NOT EXISTS giveaway_entries (
     id TEXT PRIMARY KEY, month TEXT NOT NULL, display TEXT NOT NULL, via TEXT NOT NULL, by TEXT NOT NULL,
     at TIMESTAMPTZ NOT NULL DEFAULT NOW(), voided TEXT)`;
+  // website entrants: their invite code, their Instagram handle (the winner's follow + tag is checked by hand), who invited them
+  await q`CREATE TABLE IF NOT EXISTS giveaway_people (
+    month TEXT NOT NULL, email TEXT NOT NULL, code TEXT NOT NULL UNIQUE, ig TEXT, ref TEXT,
+    at TIMESTAMPTZ NOT NULL DEFAULT NOW(), PRIMARY KEY (month, email))`;
   ready = true;
   return q;
 }
 
-export const VIA = ["Facebook", "Instagram", "Trade Me", "Website"] as const;
+export const VIA = ["Facebook", "Instagram", "Trade Me", "Website", "Invite"] as const;
 export type Via = (typeof VIA)[number];
 
 /** "Jane Smith" → "J*** S.", "kiwicollector88" → "ki***". Nothing longer is kept. */
@@ -104,4 +108,54 @@ export async function drawWinner(month: string, by: string) {
   const winner = entries[randomInt(entries.length)].id as string;
   const r = await q`UPDATE giveaway_draws SET winner = ${winner}, drawn_at = NOW(), by = ${by} WHERE month = ${month} AND winner IS NULL RETURNING winner`;
   return r.length ? { winner } : { error: "Already drawn" };
+}
+
+export const MAX_INVITES = 5;
+const ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+const newCode = () => Array.from(randomBytes(6), (b) => ALPHABET[b % ALPHABET.length]).join("");
+
+/** A website entry (owner 2026-11-21): one entry per email, plus one more for each friend who enters through their
+ * invite link (max 5; a friend counts once, and only the first time they enter). Returns their code and chances. */
+export async function joinDraw(month: string, p: { email: string; name: string; ig: string | null; ref: string | null }) {
+  const q = await sql();
+  const r = await addEntries(month, [{ id: `web:${month}:${p.email}`, name: p.name, via: "Website" }], "website");
+  if ("error" in r) return r;
+  let [me] = await q`SELECT code FROM giveaway_people WHERE month = ${month} AND email = ${p.email}`;
+  if (!me) {
+    let ref: string | null = null;
+    if (p.ref) {
+      const [inviter] = await q`SELECT email FROM giveaway_people WHERE month = ${month} AND code = ${p.ref.toUpperCase()}`;
+      if (inviter && inviter.email !== p.email) ref = inviter.email as string;
+    }
+    for (let i = 0; i < 5 && !me; i++) {
+      [me] = await q`INSERT INTO giveaway_people (month, email, code, ig, ref) VALUES (${month}, ${p.email}, ${newCode()}, ${p.ig}, ${ref})
+        ON CONFLICT DO NOTHING RETURNING code`;
+      if (!me) [me] = await q`SELECT code FROM giveaway_people WHERE month = ${month} AND email = ${p.email}`;
+    }
+    if (ref) {
+      const [{ n }] = await q`SELECT COUNT(*)::int AS n FROM giveaway_entries WHERE month = ${month} AND via = 'Invite'
+        AND id LIKE ${`bonus:${month}:${ref}:%`}`;
+      const [host] = await q`SELECT display FROM giveaway_entries WHERE id = ${`web:${month}:${ref}`}`;
+      if (n < MAX_INVITES && host) {
+        await q`INSERT INTO giveaway_entries (id, month, display, via, by) VALUES (${`bonus:${month}:${ref}:${p.email}`}, ${month},
+          ${host.display}, 'Invite', 'website') ON CONFLICT (id) DO NOTHING`;
+      }
+    }
+  } else if (p.ig) {
+    await q`UPDATE giveaway_people SET ig = ${p.ig} WHERE month = ${month} AND email = ${p.email}`;
+  }
+  const [{ invited }] = await q`SELECT COUNT(*)::int AS invited FROM giveaway_people WHERE month = ${month}
+    AND ref = ${p.email}`;
+  const [{ bonus }] = await q`SELECT COUNT(*)::int AS bonus FROM giveaway_entries WHERE month = ${month} AND via = 'Invite'
+    AND voided IS NULL AND id LIKE ${`bonus:${month}:${p.email}:%`}`;
+  return { code: me ? (me.code as string) : null, invited: invited as number, chances: 1 + (bonus as number) };
+}
+
+/** The team checks the winner by hand: their email and Instagram handle (bonus entries win for the inviter). */
+export async function winnerContact(month: string, entryId: string) {
+  const m = /^(?:web|bonus):\d{4}-\d{2}:([^:]+)/.exec(entryId);
+  if (!m) return null;
+  const q = await sql();
+  const [p] = await q`SELECT ig FROM giveaway_people WHERE month = ${month} AND email = ${m[1]}`;
+  return { email: m[1], instagram: p?.ig ? `@${p.ig}` : null };
 }
