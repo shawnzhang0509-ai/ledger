@@ -45,7 +45,8 @@ async function join(request: NextRequest, b: Record<string, unknown>) {
   }
   if (!post) return NextResponse.json({ error: "Paste the link to your Instagram post (instagram.com/p/…)" }, { status: 400, headers });
   try {
-    const found = await loadDraw();
+    const want = s(b.month, 7);       // a test draw (owner 2026-11-22 「测试一下」): /giveaway?month=2000-01
+    const found = await loadDraw(want && MONTH.test(want) ? want : undefined);
     if (!found || found.draw.winner || new Date(found.draw.ends_at) <= new Date()) {
       return NextResponse.json({ error: "Entries are closed. The next draw opens soon." }, { status: 409, headers });
     }

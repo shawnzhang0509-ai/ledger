@@ -18,7 +18,7 @@ export async function GET(request: NextRequest) {
     if (!r) return NextResponse.redirect(`${PAGE}?entered=bad`);
     if ("error" in r) return NextResponse.redirect(`${PAGE}?entered=closed`);
     await addSubscriber({ email: r.email, source: "giveaway", consent_text: CONSENT, added_by: "website", token: newToken() });
-    return NextResponse.redirect(`${PAGE}?entered=${r.code}`);
+    return NextResponse.redirect(`${PAGE}?entered=${r.code}&month=${r.month}`);
   } catch {
     return NextResponse.redirect(`${PAGE}?entered=error`);
   }
