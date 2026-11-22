@@ -26,6 +26,13 @@ async function sql() {
   await q`CREATE TABLE IF NOT EXISTS giveaway_people (
     month TEXT NOT NULL, email TEXT NOT NULL, code TEXT NOT NULL UNIQUE, ig TEXT, ref TEXT,
     at TIMESTAMPTZ NOT NULL DEFAULT NOW(), PRIMARY KEY (month, email))`;
+  // owner 2026-11-22: an entry counts only once the email is confirmed (link in a mail the server sends), and every
+  // entrant gives the link to their own Instagram post tagging us (checked by hand for the winner)
+  await q`ALTER TABLE giveaway_people ADD COLUMN IF NOT EXISTS name TEXT`;
+  await q`ALTER TABLE giveaway_people ADD COLUMN IF NOT EXISTS post_url TEXT`;
+  await q`ALTER TABLE giveaway_people ADD COLUMN IF NOT EXISTS confirm_token TEXT UNIQUE`;
+  await q`ALTER TABLE giveaway_people ADD COLUMN IF NOT EXISTS confirmed_at TIMESTAMPTZ`;
+  await q`ALTER TABLE giveaway_people ADD COLUMN IF NOT EXISTS mailed_at TIMESTAMPTZ`;
   ready = true;
   return q;
 }
@@ -114,48 +121,91 @@ export const MAX_INVITES = 5;
 const ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const newCode = () => Array.from(randomBytes(6), (b) => ALPHABET[b % ALPHABET.length]).join("");
 
-/** A website entry (owner 2026-11-21): one entry per email, plus one more for each friend who enters through their
- * invite link (max 5; a friend counts once, and only the first time they enter). Returns their code and chances. */
-export async function joinDraw(month: string, p: { email: string; name: string; ig: string | null; ref: string | null }) {
+/** Step 1 of a website entry: remember the person (pending) until they click the link in the confirmation mail.
+ * Someone already confirmed gets their invite code and counts back instead. */
+export async function requestJoin(month: string, p: { email: string; name: string; post: string; ref: string | null }) {
   const q = await sql();
-  const r = await addEntries(month, [{ id: `web:${month}:${p.email}`, name: p.name, via: "Website" }], "website");
-  if ("error" in r) return r;
-  let [me] = await q`SELECT code FROM giveaway_people WHERE month = ${month} AND email = ${p.email}`;
-  if (!me) {
-    let ref: string | null = null;
+  const [me] = await q`SELECT code, confirmed_at, mailed_at FROM giveaway_people WHERE month = ${month} AND email = ${p.email}`;
+  if (me?.confirmed_at) {
+    await q`UPDATE giveaway_people SET post_url = ${p.post} WHERE month = ${month} AND email = ${p.email}`;
+    return { confirmed: true as const, ...(await inviteStats(month, me.code as string)) };
+  }
+  if (me) {   // asked again before confirming: new post link, and the mail goes out again if the last one is 10+ min old
+    await q`UPDATE giveaway_people SET name = ${p.name}, post_url = ${p.post},
+      mailed_at = CASE WHEN mailed_at < NOW() - INTERVAL '10 minutes' THEN NULL ELSE mailed_at END
+      WHERE month = ${month} AND email = ${p.email}`;
+    return { confirmed: false as const };
+  }
+  let ref: string | null = null;
+  if (p.ref) {
+    const [inviter] = await q`SELECT email FROM giveaway_people WHERE month = ${month} AND code = ${p.ref.toUpperCase()} AND confirmed_at IS NOT NULL`;
+    if (inviter && inviter.email !== p.email) ref = inviter.email as string;
+  }
+  for (let i = 0; i < 5; i++) {
+    const r = await q`INSERT INTO giveaway_people (month, email, code, name, post_url, ref, confirm_token)
+      VALUES (${month}, ${p.email}, ${newCode()}, ${p.name}, ${p.post}, ${ref}, ${randomBytes(18).toString("base64url")})
+      ON CONFLICT DO NOTHING RETURNING code`;
+    if (r.length) break;
+    const [again] = await q`SELECT 1 FROM giveaway_people WHERE month = ${month} AND email = ${p.email}`;
+    if (again) break;      // the same person, twice at once
+  }
+  return { confirmed: false as const };
+}
+
+/** Step 2: the link in the mail. Makes the entry, and the inviter's extra one (max 5). Returns the month and code. */
+export async function confirmJoin(token: string) {
+  const q = await sql();
+  const [p] = await q`SELECT month, email, name, code, ref, confirmed_at FROM giveaway_people WHERE confirm_token = ${token}`;
+  if (!p) return null;
+  const month = p.month as string, email = p.email as string;
+  if (!p.confirmed_at) {
+    const r = await addEntries(month, [{ id: `web:${month}:${email}`, name: p.name as string, via: "Website" }], "website");
+    if ("error" in r) return { month, code: p.code as string, error: r.error as string };
+    await q`UPDATE giveaway_people SET confirmed_at = NOW() WHERE month = ${month} AND email = ${email}`;
     if (p.ref) {
-      const [inviter] = await q`SELECT email FROM giveaway_people WHERE month = ${month} AND code = ${p.ref.toUpperCase()}`;
-      if (inviter && inviter.email !== p.email) ref = inviter.email as string;
-    }
-    for (let i = 0; i < 5 && !me; i++) {
-      [me] = await q`INSERT INTO giveaway_people (month, email, code, ig, ref) VALUES (${month}, ${p.email}, ${newCode()}, ${p.ig}, ${ref})
-        ON CONFLICT DO NOTHING RETURNING code`;
-      if (!me) [me] = await q`SELECT code FROM giveaway_people WHERE month = ${month} AND email = ${p.email}`;
-    }
-    if (ref) {
+      const ref = p.ref as string;
       const [{ n }] = await q`SELECT COUNT(*)::int AS n FROM giveaway_entries WHERE month = ${month} AND via = 'Invite'
         AND id LIKE ${`bonus:${month}:${ref}:%`}`;
       const [host] = await q`SELECT display FROM giveaway_entries WHERE id = ${`web:${month}:${ref}`}`;
       if (n < MAX_INVITES && host) {
-        await q`INSERT INTO giveaway_entries (id, month, display, via, by) VALUES (${`bonus:${month}:${ref}:${p.email}`}, ${month},
+        await q`INSERT INTO giveaway_entries (id, month, display, via, by) VALUES (${`bonus:${month}:${ref}:${email}`}, ${month},
           ${host.display}, 'Invite', 'website') ON CONFLICT (id) DO NOTHING`;
       }
     }
-  } else if (p.ig) {
-    await q`UPDATE giveaway_people SET ig = ${p.ig} WHERE month = ${month} AND email = ${p.email}`;
   }
-  const [{ invited }] = await q`SELECT COUNT(*)::int AS invited FROM giveaway_people WHERE month = ${month}
-    AND ref = ${p.email}`;
-  const [{ bonus }] = await q`SELECT COUNT(*)::int AS bonus FROM giveaway_entries WHERE month = ${month} AND via = 'Invite'
-    AND voided IS NULL AND id LIKE ${`bonus:${month}:${p.email}:%`}`;
-  return { code: me ? (me.code as string) : null, invited: invited as number, chances: 1 + (bonus as number) };
+  return { month, code: p.code as string, email };
 }
 
-/** The team checks the winner by hand: their email and Instagram handle (bonus entries win for the inviter). */
+/** Friends who confirmed through this code, and the person's chances. Public by code (the code is the link). */
+export async function inviteStats(month: string, code: string) {
+  const q = await sql();
+  const [me] = await q`SELECT email FROM giveaway_people WHERE month = ${month} AND code = ${code.toUpperCase()} AND confirmed_at IS NOT NULL`;
+  if (!me) return { code: null, invited: 0, chances: 0 };
+  const [{ invited }] = await q`SELECT COUNT(*)::int AS invited FROM giveaway_people WHERE month = ${month} AND ref = ${me.email}
+    AND confirmed_at IS NOT NULL`;
+  const [{ bonus }] = await q`SELECT COUNT(*)::int AS bonus FROM giveaway_entries WHERE month = ${month} AND via = 'Invite'
+    AND voided IS NULL AND id LIKE ${`bonus:${month}:${me.email}:%`}`;
+  return { code: code.toUpperCase(), invited: invited as number, chances: 1 + (bonus as number) };
+}
+
+/** Confirmation mails still to send (the server sends them, then marks them). */
+export async function mailOutbox() {
+  const q = await sql();
+  return (await q`SELECT email, name, confirm_token AS token, month FROM giveaway_people
+    WHERE confirmed_at IS NULL AND mailed_at IS NULL AND at > NOW() - INTERVAL '3 days' ORDER BY at LIMIT 50`) as
+    { email: string; name: string; token: string; month: string }[];
+}
+
+export async function markMailed(tokens: string[]) {
+  const q = await sql();
+  if (tokens.length) await q`UPDATE giveaway_people SET mailed_at = NOW() WHERE confirm_token = ANY(${tokens})`;
+}
+
+/** The team checks the winner by hand: their email and Instagram post (bonus entries win for the inviter). */
 export async function winnerContact(month: string, entryId: string) {
   const m = /^(?:web|bonus):\d{4}-\d{2}:([^:]+)/.exec(entryId);
   if (!m) return null;
   const q = await sql();
-  const [p] = await q`SELECT ig FROM giveaway_people WHERE month = ${month} AND email = ${m[1]}`;
-  return { email: m[1], instagram: p?.ig ? `@${p.ig}` : null };
+  const [p] = await q`SELECT post_url FROM giveaway_people WHERE month = ${month} AND email = ${m[1]}`;
+  return { email: m[1], instagram_post: (p?.post_url as string) ?? null };
 }
