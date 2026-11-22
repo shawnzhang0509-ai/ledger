@@ -1,14 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { unstable_noStore as noStore } from "next/cache";
-import { addEntries, drawWinner, joinDraw, loadDraw, setDraw, VIA, Via, voidEntry, winnerContact } from "@/lib/giveaway-db";
+import { addEntries, drawWinner, inviteStats, loadDraw, mailOutbox, markMailed, requestJoin, setDraw, VIA, Via, voidEntry, winnerContact } from "@/lib/giveaway-db";
 import { pushTokenMatches, sessionRole } from "@/lib/session";
-import { addSubscriber } from "@/lib/db";
-import { cleanEmail, newToken } from "@/lib/subscribe";
+import { cleanEmail } from "@/lib/subscribe";
 
 // The monthly draw. GET is public for www.driftae.com/giveaway: prize, end time, masked entries, the winner once drawn
 // (entry ids stay here; the page gets positions only). POST is the bots (`dt giveaway …`) and the team's pages, plus the
-// page's own entry form (action "join"): name + email + one consent box. The point of the draw is the email list
-// (owner 2026-11-21), so an entry is also a subscriber; the box says so. One entry per email per month.
+// page's own entry form (action "join"): name + email + their Instagram post tagging us + one consent box. The point of
+// the draw is the email list (owner 2026-11-21), so an entry is also a subscriber; the box says so. One entry per email
+// per month, and only once the email is confirmed (owner 2026-11-22): the server mails the link (actions outbox/mailed),
+// /api/giveaway/confirm makes the entry.
 export const dynamic = "force-dynamic";
 export const fetchCache = "force-no-store";
 export const revalidate = 0;
@@ -18,7 +19,6 @@ const s = (v: unknown, n = 200) => (typeof v === "string" && v.trim() ? v.trim()
 const bad = (error: string, status = 400) => NextResponse.json({ error }, { status });
 const MONTH = /^\d{4}-\d{2}$/;
 
-const CONSENT = "Giveaway form: \"Enter me in the draw and email me new arrivals and deals from DRIFTAE. Unsubscribe anytime.\"";
 
 function cors(request: NextRequest): Record<string, string> {
   const origin = request.headers.get("origin") ?? "";
@@ -37,19 +37,19 @@ async function join(request: NextRequest, b: Record<string, unknown>) {
   if (!headers["Access-Control-Allow-Origin"]) return NextResponse.json({ error: "Forbidden" }, { status: 403, headers });
   if (b.website) return NextResponse.json({ ok: true }, { headers });          // honeypot: bots fill every field
   const email = cleanEmail(b.email), name = s(b.name, 60);
-  const ig = s(b.instagram, 40)?.replace(/^@+/, "").replace(/[^\w.]/g, "").slice(0, 30) || null;
+  const post = /^https?:\/\/(?:www\.)?instagram\.com\/(?:[\w.]+\/)?(?:p|reel|reels)\/[\w-]+/.exec(s(b.post, 300) ?? "")?.[0]
+    .replace(/^http:/, "https:") ?? null;
   const ref = s(b.ref, 12)?.replace(/[^A-Za-z0-9]/g, "") || null;
   if (!email || !name || b.consent !== true) {
     return NextResponse.json({ error: "Enter your name and a valid email, and tick the box" }, { status: 400, headers });
   }
+  if (!post) return NextResponse.json({ error: "Paste the link to your Instagram post (instagram.com/p/…)" }, { status: 400, headers });
   try {
     const found = await loadDraw();
     if (!found || found.draw.winner || new Date(found.draw.ends_at) <= new Date()) {
       return NextResponse.json({ error: "Entries are closed. The next draw opens soon." }, { status: 409, headers });
     }
-    await addSubscriber({ email, source: "giveaway", consent_text: CONSENT, added_by: "website", token: newToken() });
-    const r = await joinDraw(found.draw.month, { email, name, ig, ref });
-    if ("error" in r) return NextResponse.json({ error: r.error }, { status: 409, headers });
+    const r = await requestJoin(found.draw.month, { email, name, post, ref });
     return NextResponse.json({ ok: true, month: found.draw.month, ...r }, { headers });
   } catch {
     return NextResponse.json({ error: "Please try again later" }, { status: 503, headers });
@@ -61,7 +61,12 @@ export async function GET(request: NextRequest) {
   const headers = cors(request);
   const month = request.nextUrl.searchParams.get("month");
   if (month && !MONTH.test(month)) return NextResponse.json({ error: "month is YYYY-MM" }, { status: 400, headers });
+  const code = request.nextUrl.searchParams.get("code");
   try {
+    if (code && /^[A-Za-z0-9]{4,12}$/.test(code)) {      // the entered page: this person's invite count
+      const found = await loadDraw(month ?? undefined);
+      return NextResponse.json(found ? await inviteStats(found.draw.month, code) : { code: null }, { headers: { ...headers, "Cache-Control": "no-store" } });
+    }
     const team = sessionRole(request) || pushTokenMatches(request.headers.get("authorization"));
     const found = await loadDraw(month ?? undefined);
     if (!found) return NextResponse.json({ draw: null }, { headers });
@@ -87,6 +92,11 @@ export async function POST(request: NextRequest) {
   const role = server ? null : sessionRole(request);
   if (!server && !role) return bad("Unauthorized", 401);
   const by = server ? `bot:${(s(b.by, 40) ?? "server").replace(/[^\w一-鿿-]/g, "")}` : `page:${role}`;
+  if (b.action === "outbox") return NextResponse.json({ mails: await mailOutbox() });
+  if (b.action === "mailed") {
+    await markMailed(Array.isArray(b.tokens) ? b.tokens.filter((t: unknown) => typeof t === "string").slice(0, 100) : []);
+    return NextResponse.json({ success: true });
+  }
   const month = s(b.month, 7);
   if (!month || !MONTH.test(month)) return bad("month is YYYY-MM");
 
@@ -120,5 +130,5 @@ export async function POST(request: NextRequest) {
     const r = await drawWinner(month, by);
     return "error" in r ? NextResponse.json(r, { status: 409 }) : NextResponse.json({ success: true, winner: r.winner });
   }
-  return bad("action join|set|enter|void|draw");
+  return bad("action join|set|enter|void|draw|outbox|mailed");
 }
