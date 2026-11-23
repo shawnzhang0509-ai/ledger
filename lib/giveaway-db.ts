@@ -61,8 +61,11 @@ const toDraw = (r: Record<string, unknown>): Draw => ({
 
 export async function loadDraw(month?: string) {
   const q = await sql();
-  const rows = month ? await q`SELECT * FROM giveaway_draws WHERE month = ${month}`
-    : await q`SELECT * FROM giveaway_draws ORDER BY month DESC LIMIT 1`;
+  // no month: the draw running now, or the one that ended in the last 3 days (its winner stays up); else the latest.
+  // Next month's draw can be set early without hiding this one.
+  let rows = month ? await q`SELECT * FROM giveaway_draws WHERE month = ${month}`
+    : await q`SELECT * FROM giveaway_draws WHERE ends_at > NOW() - INTERVAL '3 days' ORDER BY ends_at ASC LIMIT 1`;
+  if (!month && !rows.length) rows = await q`SELECT * FROM giveaway_draws ORDER BY month DESC LIMIT 1`;
   if (!rows.length) return null;
   const draw = toDraw(rows[0]);
   const entries = (await q`SELECT id, display, via FROM giveaway_entries WHERE month = ${draw.month} AND voided IS NULL ORDER BY id`) as unknown as Entry[];
