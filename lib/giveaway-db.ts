@@ -61,8 +61,11 @@ const toDraw = (r: Record<string, unknown>): Draw => ({
 
 export async function loadDraw(month?: string) {
   const q = await sql();
-  const rows = month ? await q`SELECT * FROM giveaway_draws WHERE month = ${month}`
-    : await q`SELECT * FROM giveaway_draws ORDER BY month DESC LIMIT 1`;
+  // no month: the draw running now, or the one that ended in the last 3 days (its winner stays up); else the latest.
+  // Next month's draw can be set early without hiding this one.
+  let rows = month ? await q`SELECT * FROM giveaway_draws WHERE month = ${month}`
+    : await q`SELECT * FROM giveaway_draws WHERE ends_at > NOW() - INTERVAL '3 days' ORDER BY ends_at ASC LIMIT 1`;
+  if (!month && !rows.length) rows = await q`SELECT * FROM giveaway_draws ORDER BY month DESC LIMIT 1`;
   if (!rows.length) return null;
   const draw = toDraw(rows[0]);
   const entries = (await q`SELECT id, display, via FROM giveaway_entries WHERE month = ${draw.month} AND voided IS NULL ORDER BY id`) as unknown as Entry[];
@@ -115,6 +118,31 @@ export async function drawWinner(month: string, by: string) {
   const winner = entries[randomInt(entries.length)].id as string;
   const r = await q`UPDATE giveaway_draws SET winner = ${winner}, drawn_at = NOW(), by = ${by} WHERE month = ${month} AND winner IS NULL RETURNING winner`;
   return r.length ? { winner } : { error: "Already drawn" };
+}
+
+/** The winner's post doesn't pass the hand check (owner 2026-11-22): their entry is voided, the draw is run again. */
+export async function redraw(month: string, why: string, by: string) {
+  const q = await sql();
+  const [draw] = await q`SELECT winner FROM giveaway_draws WHERE month = ${month}`;
+  if (!draw?.winner) return { error: "Not drawn yet" };
+  const note = `${by} redraw ${why}`.trim();
+  const email = /^(?:web|bonus):\d{4}-\d{2}:([^:]+)/.exec(draw.winner as string)?.[1];
+  if (email) {        // a website entrant: every entry of theirs goes, the invite bonuses too
+    await q`UPDATE giveaway_entries SET voided = ${note} WHERE month = ${month} AND voided IS NULL
+      AND (id = ${`web:${month}:${email}`} OR id LIKE ${`bonus:${month}:${email}:%`})`;
+  }
+  await q`UPDATE giveaway_entries SET voided = ${note} WHERE id = ${draw.winner} AND voided IS NULL`;
+  await q`UPDATE giveaway_draws SET winner = NULL, drawn_at = NULL WHERE month = ${month} AND winner = ${draw.winner}`;
+  return drawWinner(month, by);
+}
+
+/** For the team's card: website entrants (confirmed or still waiting on the email) and invite chances. */
+export async function drawStats(month: string) {
+  const q = await sql();
+  const [p] = await q`SELECT COUNT(*) FILTER (WHERE confirmed_at IS NOT NULL)::int AS confirmed,
+    COUNT(*) FILTER (WHERE confirmed_at IS NULL)::int AS pending FROM giveaway_people WHERE month = ${month}`;
+  const [e] = await q`SELECT COUNT(*) FILTER (WHERE via = 'Invite')::int AS invites FROM giveaway_entries WHERE month = ${month} AND voided IS NULL`;
+  return { confirmed: p.confirmed as number, pending: p.pending as number, invites: e.invites as number };
 }
 
 export const MAX_INVITES = 5;

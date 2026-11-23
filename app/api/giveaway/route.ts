@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { unstable_noStore as noStore } from "next/cache";
-import { addEntries, drawWinner, inviteStats, loadDraw, mailOutbox, markMailed, requestJoin, setDraw, VIA, Via, voidEntry, winnerContact } from "@/lib/giveaway-db";
+import { addEntries, drawStats, drawWinner, inviteStats, redraw, loadDraw, mailOutbox, markMailed, requestJoin, setDraw, VIA, Via, voidEntry, winnerContact } from "@/lib/giveaway-db";
 import { pushTokenMatches, sessionRole } from "@/lib/session";
 import { cleanEmail } from "@/lib/subscribe";
 
@@ -77,6 +77,7 @@ export async function GET(request: NextRequest) {
       draw: { month: draw.month, product_id: draw.product_id, prize: draw.prize, prize_value: draw.prize_value, image: draw.image,
               ends_at: draw.ends_at, drawn_at: draw.drawn_at },
       entries: entries.map((e) => ({ display: e.display, via: e.via, ...(team ? { id: e.id } : {}) })),
+      ...(team ? { stats: await drawStats(draw.month) } : {}),
       winner: winnerIndex >= 0 ? { index: winnerIndex, display: entries[winnerIndex].display, via: entries[winnerIndex].via,
                                    ...(team ? { id: draw.winner, contact: await winnerContact(draw.month, draw.winner as string) } : {}) } : null,
     }, { headers: { ...headers, "Cache-Control": "no-store" } });
@@ -131,5 +132,9 @@ export async function POST(request: NextRequest) {
     const r = await drawWinner(month, by);
     return "error" in r ? NextResponse.json(r, { status: 409 }) : NextResponse.json({ success: true, winner: r.winner });
   }
-  return bad("action join|set|enter|void|draw|outbox|mailed");
+  if (b.action === "redraw") {
+    const r = await redraw(month, s(b.why, 120) ?? "", by);
+    return "error" in r ? NextResponse.json(r, { status: 409 }) : NextResponse.json({ success: true, winner: r.winner });
+  }
+  return bad("action join|set|enter|void|draw|redraw|outbox|mailed");
 }
