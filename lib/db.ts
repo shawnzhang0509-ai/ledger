@@ -1,4 +1,5 @@
 import { neon } from "@neondatabase/serverless";
+import { newToken } from "@/lib/subscribe";
 
 // Postgres (Neon, connected in Vercel → Storage) keeps the history of the ops metrics.
 // Without it the dashboard still works from the latest snapshot in Redis, just without trends.
@@ -314,6 +315,55 @@ export async function unsubscribe(token: string) {
   const rows = await sql`UPDATE subscribers SET unsubscribed_at = now()
     WHERE token = ${token} AND unsubscribed_at IS NULL RETURNING email`;
   return rows.length > 0;
+}
+
+// The website form asks first (owner 2026-11-24, like the giveaway): an address waits here until its owner taps the
+// link the server mails (dt mail giveaway-confirm, every 2 min), so nobody can sign someone else up.
+async function ensurePending(sql: NonNullable<ReturnType<typeof client>>) {
+  await ensureSubscribers(sql);
+  await sql`CREATE TABLE IF NOT EXISTS subscribe_pending (
+    email text PRIMARY KEY, source text NOT NULL, consent_text text NOT NULL, token text NOT NULL UNIQUE,
+    at timestamptz NOT NULL DEFAULT now(), mailed_at timestamptz)`;
+}
+
+/** Step 1: the form. Already subscribed → nothing; asked again → the mail goes out again if the last is 10+ min old. */
+export async function requestSubscribe(s: { email: string; source: string; consent_text: string; token: string }) {
+  const sql = client();
+  if (!sql) throw new Error("DATABASE_NOT_CONFIGURED");
+  await ensurePending(sql);
+  const [on] = await sql`SELECT 1 FROM subscribers WHERE email = ${s.email} AND unsubscribed_at IS NULL`;
+  if (on) return;
+  await sql`INSERT INTO subscribe_pending (email, source, consent_text, token) VALUES (${s.email}, ${s.source}, ${s.consent_text}, ${s.token})
+    ON CONFLICT (email) DO UPDATE SET source = EXCLUDED.source, consent_text = EXCLUDED.consent_text, at = now(),
+      mailed_at = CASE WHEN subscribe_pending.mailed_at < now() - INTERVAL '10 minutes' THEN NULL ELSE subscribe_pending.mailed_at END`;
+}
+
+/** Step 2: the link in the mail. Adds them with the wording they ticked; null for an unknown or used link. */
+export async function confirmSubscribe(token: string) {
+  const sql = client();
+  if (!sql || !token) return null;
+  await ensurePending(sql);
+  const [p] = await sql`DELETE FROM subscribe_pending WHERE token = ${token} RETURNING email, source, consent_text`;
+  if (!p) return null;
+  await addSubscriber({ email: p.email as string, source: p.source as string,
+    consent_text: `${p.consent_text as string} Email confirmed.`, added_by: "website", token: newToken() });
+  return p.email as string;
+}
+
+/** Confirmation mails still to send (3 days, then the ask lapses). */
+export async function subscribeOutbox() {
+  const sql = client();
+  if (!sql) return [];
+  await ensurePending(sql);
+  return (await sql`SELECT email, token FROM subscribe_pending WHERE mailed_at IS NULL AND at > now() - INTERVAL '3 days'
+    ORDER BY at LIMIT 50`) as { email: string; token: string }[];
+}
+
+export async function markSubscribeMailed(tokens: string[]) {
+  const sql = client();
+  if (!sql || !tokens.length) return;
+  await ensurePending(sql);
+  await sql`UPDATE subscribe_pending SET mailed_at = now() WHERE token = ANY(${tokens})`;
 }
 
 /** A customer asked us (Messenger or email) to stop: same effect as the link. */
