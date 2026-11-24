@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { addSubscriber } from "@/lib/db";
+import { requestSubscribe } from "@/lib/db";
 import { cleanEmail, newToken } from "@/lib/subscribe";
 
-// Public sign-up form on www.driftae.com. The visitor ticks the consent box; that wording is stored with them.
-// The answer never says whether an address was already on the list.
+// Public sign-up form on www.driftae.com. The visitor ticks the consent box; that wording is stored with them once they
+// tap the link we mail them (/api/subscribe/confirm; owner 2026-11-24). The answer never says whether an address was
+// already on the list.
 const ORIGINS = new Set(["https://www.driftae.com", "https://driftae.com", "http://localhost:4173", "http://localhost:5173"]);
 const CONSENT = "Website form: \"Email me new arrivals and members-only deals from DRIFTAE. Unsubscribe anytime.\"";
 
@@ -28,9 +29,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Enter a valid email and tick the box" }, { status: 400, headers });
   }
   try {
-    await addSubscriber({ email, source: "website", consent_text: CONSENT, added_by: "website", token: newToken() });
+    await requestSubscribe({ email, source: "website", consent_text: CONSENT, token: newToken() });
   } catch {
     return NextResponse.json({ error: "Please try again later" }, { status: 503, headers });
   }
-  return NextResponse.json({ ok: true }, { headers });
+  return NextResponse.json({ ok: true, confirm: true }, { headers });
 }
