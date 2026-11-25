@@ -51,6 +51,7 @@ const nzdCostFields = [
 export function OrderForm({ order, onSubmit, onClose }: OrderFormProps) {
   const [form, setForm] = useState<OrderFormData>(emptyOrder);
   const [previewProfit, setPreviewProfit] = useState(0);
+  const [receipt, setReceipt] = useState("");
 
   useEffect(() => {
     if (order) {
@@ -93,6 +94,31 @@ export function OrderForm({ order, onSubmit, onClose }: OrderFormProps) {
 
   const handleChange = (field: string, value: string | number) => {
     setForm((prev) => ({ ...prev, [field]: value }));
+  };
+
+  // 付款截图 → 进货价（人民币）: shrunk to a small JPEG here (the upload goes to Beijing), read by /api/orders/read-receipt.
+  const readReceipt = async (file: File | undefined) => {
+    if (!file) return;
+    setReceipt("正在读截图，大约 20 秒…");
+    try {
+      const bitmap = await createImageBitmap(file);
+      const scale = Math.min(1, 1000 / Math.max(bitmap.width, bitmap.height));
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.round(bitmap.width * scale);
+      canvas.height = Math.round(bitmap.height * scale);
+      canvas.getContext("2d")!.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+      const res = await fetch("/api/orders/read-receipt", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ image: canvas.toDataURL("image/jpeg", 0.7) }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.cny) throw new Error(data.error || "没读出金额");
+      handleChange("purchaseCostCny", data.cny);
+      setReceipt(`读到 ¥${data.cny}${data.what ? `（${data.what}）` : ""}，看一眼对不对再保存`);
+    } catch (e) {
+      setReceipt(`${e instanceof Error ? e.message : "没读出来"}，请手填`);
+    }
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -168,7 +194,14 @@ export function OrderForm({ order, onSubmit, onClose }: OrderFormProps) {
           </div>
 
           <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-4">
-            <h3 className="text-sm font-semibold text-slate-800">采购成本</h3>
+            <div className="flex items-center justify-between gap-3">
+              <h3 className="text-sm font-semibold text-slate-800">采购成本</h3>
+              <label className="cursor-pointer rounded-lg bg-slate-800 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700">
+                传付款截图
+                <input type="file" accept="image/*" className="hidden" onChange={(e) => { readReceipt(e.target.files?.[0]); e.target.value = ""; }} />
+              </label>
+            </div>
+            {receipt && <p className="text-sm text-slate-700 bg-white border border-slate-200 rounded-lg px-3 py-2">{receipt}</p>}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">
