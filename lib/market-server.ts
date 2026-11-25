@@ -14,6 +14,17 @@ export async function nzdPerCny(): Promise<number | null> {
   }
 }
 
+// CNY per NZD on a sale's day (ECB reference rate; a weekend gives the last weekday's), the same rate dt orders fill uses.
+export async function cnyPerNzdOn(day: string): Promise<number | null> {
+  try {
+    const r = await fetch(`https://api.frankfurter.dev/v1/${day.slice(0, 10)}?base=NZD&symbols=CNY`, { next: { revalidate: 86400 } });
+    const cny = (await r.json())?.rates?.CNY;
+    return cny ? Math.round(cny * 10000) / 10000 : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function loadProducts(): Promise<Product[]> {
   const res = await fetch("https://www.driftae.com/products.json", { next: { revalidate: 600 } });
   if (!res.ok) throw new Error("CATALOGUE_UNAVAILABLE");
