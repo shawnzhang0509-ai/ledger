@@ -186,7 +186,7 @@ export function OrderForm({ order, onSubmit, onClose }: OrderFormProps) {
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">
-                  {FIELD_LABELS.exchangeRate} *
+                  {FIELD_LABELS.exchangeRate}
                 </label>
                 <input
                   type="number"
@@ -195,9 +195,9 @@ export function OrderForm({ order, onSubmit, onClose }: OrderFormProps) {
                   value={form.exchangeRate || ""}
                   onChange={(e) => handleChange("exchangeRate", parseFloat(e.target.value) || 0)}
                   className={inputClass}
-                  placeholder="如 4.5"
+                  placeholder="不填就用卖出当天的汇率"
                 />
-                <p className="text-xs text-slate-500 mt-1">1 纽币 = ? 人民币</p>
+                <p className="text-xs text-slate-500 mt-1">1 纽币 = ? 人民币，留空自动填</p>
               </div>
             </div>
             <div className="flex items-center justify-between text-sm bg-white rounded-lg border border-slate-200 px-4 py-3">
