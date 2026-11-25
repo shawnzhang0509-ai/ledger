@@ -11,7 +11,8 @@ import { pushTokenMatches } from "@/lib/session";
 const ORDERS_KEY = "diecast:orders";
 const MONEY = ["purchaseCostCny", "exchangeRate", "purchaseCost", "airFreight", "tradeMeFee",
   "shippingCharge", "courierCost", "sellingPrice"] as const;
-const TEXT = ["dateSold", "customer", "model", "brand", "scale", "tracking"] as const;
+const TEXT = ["dateSold", "customer", "model", "brand", "scale", "tracking",
+  "shippedDate", "deliveredDate"] as const;
 // Pending < Paid < Shipped < Completed: a bot may only move an order forward, never cancel or reopen it.
 const STATUS_RANK: Record<string, number> = { Pending: 0, Paid: 1, Shipped: 2, Completed: 3 };
 
@@ -27,6 +28,9 @@ function clean(raw: Record<string, unknown>): Fields {
     if (raw[k] != null && Number.isFinite(v) && v >= 0 && v < 100000) out[k] = Math.round(v * 100) / 100;
   }
   for (const k of TEXT) if (typeof raw[k] === "string" && raw[k]) out[k] = String(raw[k]).trim().slice(0, 200);
+  for (const k of ["shippedDate", "deliveredDate"]) {
+    if (out[k] && !/^\d{4}-\d{2}-\d{2}$/.test(String(out[k]))) delete out[k];   // dates only, else left blank
+  }
   if (typeof raw.status === "string" && raw.status in STATUS_RANK) out.status = raw.status;
   if (DELIVERY_MODES.includes(raw.deliveryMode as DeliveryMode)) out.deliveryMode = raw.deliveryMode;
   return out as Fields;

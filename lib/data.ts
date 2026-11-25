@@ -20,6 +20,9 @@ export interface Order {
   sellingPrice: number;
   grossProfit: number;
   tracking: string;
+  // Delivery cycle (blank = not known, never guessed): local waybill created / delivered, YYYY-MM-DD.
+  shippedDate?: string;
+  deliveredDate?: string;
   notes: string;
   // "air-door": air freight is door to door, there is no separate courier cost (owner 2026-10-21).
   // Not set = "courier" (old rows unchanged): a 0 courier cost then means "not filled in yet".

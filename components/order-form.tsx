@@ -35,6 +35,8 @@ const emptyOrder: OrderFormData = {
   courierCost: 0,
   sellingPrice: 0,
   tracking: "",
+  shippedDate: "",
+  deliveredDate: "",
   notes: "",
 };
 
@@ -69,6 +71,8 @@ export function OrderForm({ order, onSubmit, onClose }: OrderFormProps) {
         courierCost: order.courierCost,
         sellingPrice: order.sellingPrice,
         tracking: order.tracking,
+        shippedDate: order.shippedDate ?? "",
+        deliveredDate: order.deliveredDate ?? "",
         notes: order.notes,
         deliveryMode: order.deliveryMode,
       });
@@ -152,6 +156,14 @@ export function OrderForm({ order, onSubmit, onClose }: OrderFormProps) {
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">{FIELD_LABELS.tracking}</label>
               <input value={form.tracking} onChange={(e) => handleChange("tracking", e.target.value)} className={inputClass} />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">{FIELD_LABELS.shippedDate}</label>
+              <input type="date" value={form.shippedDate ?? ""} onChange={(e) => handleChange("shippedDate", e.target.value)} className={inputClass} />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">{FIELD_LABELS.deliveredDate}</label>
+              <input type="date" value={form.deliveredDate ?? ""} onChange={(e) => handleChange("deliveredDate", e.target.value)} className={inputClass} />
             </div>
           </div>
 

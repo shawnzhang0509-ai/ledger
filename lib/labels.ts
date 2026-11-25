@@ -27,6 +27,8 @@ export const FIELD_LABELS = {
   sellingPrice: "售价",
   grossProfit: "毛利",
   tracking: "物流单号",
+  shippedDate: "运单生成日期",
+  deliveredDate: "送达日期",
   notes: "备注",
 } as const;
 
