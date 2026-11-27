@@ -2,11 +2,16 @@
 
 import { useEffect, useState } from "react";
 import { AuthGate } from "@/components/auth-gate";
-import { RefreshCw } from "lucide-react";
+import {
+  Bot, Camera, CheckCircle2, Clock, Eye, Heart, Home, Info, Megaphone, MessageCircle, Receipt, RefreshCw, Tag,
+  Trophy, UserCheck, Wallet, XCircle, type LucideIcon,
+} from "lucide-react";
 import { type AdRace, raceLabel, raceState } from "@/lib/ad-race";
 
 // Numbers pushed by the driftae-ops server (`dt dashboard --push`): no customer names, no message text.
 // What each metric means, its owner role, target and rule come from org/metrics.json in driftae-ops.
+// Read at a glance (owner 2026-11-27, dyslexia: "全是文字"): big numbers, colour and icons first; every
+// explanation sits behind ⓘ. Ink and orange, like brain.
 type Status = "ok" | "bad" | "info" | "unknown";
 type Metric = {
   id: string; label: string; role: string; unit: string; direction: "lower" | "higher" | "info";
@@ -40,14 +45,26 @@ type Snapshot = {
 };
 type Point = { metric_id: string; day: string; value: number | null; status: string };
 
-const ROLES: [string, string][] = [
-  ["customer-service", "客服"], ["marketing", "营销"], ["sales", "销售（Trade Me）"], ["finance", "财务"], ["owner", "你（owner）"],
+const ROLES: [string, string, LucideIcon][] = [
+  ["customer-service", "客服", MessageCircle], ["marketing", "营销", Megaphone], ["sales", "Trade Me", Tag],
+  ["finance", "财务", Wallet], ["owner", "你", UserCheck],
 ];
-const SOURCE_NAMES: Record<string, string> = { meta: "Meta 广告 / Messenger", trademe: "Trade Me", orders: "订单系统", ledger: "agent 记录", bots: "bot 能力表" };
-const money = (n: number) => `$${n.toFixed(2)}`;
+const roleIcon = (role: string) => ROLES.find(([k]) => k === role)?.[2] ?? Bot;
+const SOURCE_NAMES: Record<string, string> = { meta: "Meta", trademe: "Trade Me", orders: "订单", ledger: "记录", bots: "bot" };
+const money = (n: number) => (Math.abs(n) >= 1000 ? `$${Math.round(n).toLocaleString()}` : `$${n.toFixed(n % 1 ? 2 : 0)}`);
 const when = (iso: string | null | undefined) => (iso ? iso.slice(5, 16).replace("T", " ") : "—");
 const fmt = (m: Metric, v: number | null) =>
   v === null ? "—" : m.unit === "NZ$" ? money(v) : `${Number.isInteger(v) ? v : v.toFixed(1)}${m.unit === "%" ? "%" : " " + m.unit}`;
+const target = (m: Metric) => (m.direction === "info" ? "参考" : `${m.direction === "lower" ? "≤" : "≥"} ${fmt(m, m.target)}`);
+
+const C = {
+  page: "bg-[#f5f3ee] text-[#16161a]",
+  card: "bg-white rounded-[24px]",
+  soft: "text-[#5e5b55]",
+  accent: "text-[#c2410c]",
+  good: "text-[#15803d]",
+  bad: "text-[#c2410c]",
+};
 
 export default function OpsPage() {
   return (
@@ -80,7 +97,7 @@ function OpsContent() {
   };
   useEffect(load, []);
 
-  if (loading && !snap) return <Centered>加载中...</Centered>;
+  if (loading && !snap) return <Centered>加载中…</Centered>;
   if (error) return <Centered>{error}</Centered>;
   if (!snap) return <Centered>还没有数据：等服务器第一次推送（每 30 分钟一次）</Centered>;
 
@@ -91,232 +108,246 @@ function OpsContent() {
   const teamStatus = (role: string) => snap.team.find((t) => t.role === role)?.status;
   const ageMin = (Date.now() - new Date(snap.built).getTime()) / 60000;
   const tm = [...snap.trademe].sort((a, b) => b.watchers - a.watchers || b.views - a.views);
+  const waiting = snap.inbox.filter((r) => r.status === "waiting");
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <div className="max-w-7xl mx-auto p-4 lg:p-8 space-y-8">
-        <header className="flex flex-col sm:flex-row sm:items-end justify-between gap-3">
-          <div>
-            <h1 className="text-2xl font-bold text-slate-900">Driftae 运营看板</h1>
-            <p className={`text-sm mt-1 ${ageMin > 90 ? "text-amber-600" : "text-slate-500"}`}>
-              数据更新于 {when(snap.built)}
-              {ageMin > 90 && "（超过 90 分钟没更新，检查服务器推送）"}
-              {!hasDb && " · 趋势需要连接数据库"}
-            </p>
-          </div>
-          <div className="flex items-center gap-3 text-sm">
-            <a href="/team" className="text-slate-500 hover:text-slate-800">bot 能做什么</a>
-            <a href="/catalog" className="text-slate-500 hover:text-slate-800">商品与价格</a>
-            <a href="/photos" className="text-slate-500 hover:text-slate-800">上传照片</a>
-            <a href="/" className="text-slate-500 hover:text-slate-800">首页</a>
-            <a href="/orders" className="text-slate-500 hover:text-slate-800">订单</a>
-            <button onClick={load} className="flex items-center gap-1.5 px-3 py-1.5 border border-slate-300 rounded-lg hover:bg-white">
-              <RefreshCw className="w-4 h-4" /> 刷新
+    <div className={`min-h-screen ${C.page}`}>
+      <div className="max-w-5xl mx-auto px-4 pt-6 pb-16 lg:px-8 space-y-8">
+        <header className="space-y-4">
+          <div className="flex items-center justify-between gap-3">
+            <h1 className="text-[30px] font-extrabold tracking-tight">运营</h1>
+            <button onClick={load} aria-label="刷新"
+              className="flex items-center gap-1.5 h-11 px-4 rounded-full bg-white font-semibold active:opacity-70">
+              <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
+              <span className={ageMin > 90 ? C.bad : C.soft}>{when(snap.built).slice(6)}</span>
             </button>
           </div>
+          {ageMin > 90 && <Banner>超过 90 分钟没更新，检查服务器推送</Banner>}
+          <nav className="flex gap-2 overflow-x-auto -mx-4 px-4 pb-1 [scrollbar-width:none]">
+            {([["/orders", "订单", Receipt], ["/catalog", "商品", Tag], ["/photos", "照片", Camera], ["/team", "bot", Bot], ["/", "首页", Home]] as [string, string, LucideIcon][]).map(([href, name, I]) => (
+              <a key={href} href={href} className="flex shrink-0 items-center gap-1.5 h-10 px-4 rounded-full bg-white font-semibold active:opacity-70">
+                <I className={`w-4 h-4 ${C.accent}`} />{name}
+              </a>
+            ))}
+          </nav>
         </header>
 
-        <p className="text-slate-700">
-          {bad.length === 0
-            ? "所有指标都在目标内。"
-            : `${bad.length} 项没达标：${bad.map((m) => `${m.label} ${fmt(m, m.value)}（目标 ${m.direction === "lower" ? "≤" : "≥"} ${fmt(m, m.target)}）`).join("；")}。`}
-        </p>
+        {/* The first screen: what is off target, as tiles; or one green tile. */}
+        <section aria-label="没达标">
+          {bad.length === 0 ? (
+            <div className={`${C.card} p-5 flex items-center gap-3`}>
+              <CheckCircle2 className={`w-10 h-10 ${C.good}`} />
+              <span className="text-xl font-bold">全部达标</span>
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              {bad.map((m) => <BigTile key={m.id} m={m} />)}
+            </div>
+          )}
+        </section>
+
+        {snap.sources && (
+          <div className="flex flex-wrap gap-2" aria-label="数据来源">
+            {Object.entries(snap.sources).map(([k, s]) => (
+              <span key={k} title={s.ok ? `更新于 ${when(s.at)}` : `更新失败，数据停在 ${when(s.at)}${s.error ? `：${s.error}` : ""}`}
+                className={`flex items-center gap-1.5 h-9 px-3 rounded-full font-semibold ${s.ok ? "bg-white" : "bg-[#fde8dc] text-[#9a3412]"}`}>
+                <span className={`w-2.5 h-2.5 rounded-full ${s.ok ? "bg-[#16a34a]" : "bg-[#c2410c]"}`} />
+                {SOURCE_NAMES[k] ?? k}{!s.ok && " 断了"}
+              </span>
+            ))}
+            {!hasDb && <span className={`flex items-center h-9 px-3 ${C.soft}`}>趋势要连数据库</span>}
+          </div>
+        )}
 
         {rules.length > 0 && (
-          <Section title="规矩" note="Notion 里定的规矩，以及现在守住没有。">
-            <div className="grid md:grid-cols-2 gap-3">
+          <Section title="规矩" icon={CheckCircle2} note="Notion 里定的规矩，以及现在守住没有。点一条看全文。">
+            <div className={`${C.card} divide-y divide-[#e3dfd6]`}>
               {rules.map((rule) => {
                 const ms = metrics.filter((m) => m.rule === rule);
-                const broken = ms.filter((m) => m.status === "bad");
+                const broken = ms.some((m) => m.status === "bad");
+                const lead = ms.find((m) => m.status === "bad") ?? ms[0];
                 return (
-                  <div key={rule} className={`bg-white rounded-xl border p-4 ${broken.length ? "border-red-300" : "border-slate-200"}`}>
-                    <div className="flex items-start justify-between gap-3">
-                      <p className="text-sm text-slate-800">{rule}</p>
-                      <Pill tone={broken.length ? "bad" : "ok"}>{broken.length ? "违反" : "守住"}</Pill>
+                  <details key={rule} className="group">
+                    <summary className="flex items-center gap-3 px-4 py-3.5 cursor-pointer list-none [&::-webkit-details-marker]:hidden">
+                      {broken ? <XCircle className={`w-7 h-7 shrink-0 ${C.bad}`} /> : <CheckCircle2 className={`w-7 h-7 shrink-0 ${C.good}`} />}
+                      <span className="flex-1 min-w-0 truncate group-open:whitespace-normal font-medium">{rule}</span>
+                      <span className={`shrink-0 text-xl font-extrabold tabular-nums ${broken ? C.bad : C.good}`}>{fmt(lead, lead.value)}</span>
+                    </summary>
+                    <div className={`px-4 pb-3.5 pl-14 text-sm ${C.soft}`}>
+                      {ms.map((m) => <div key={m.id}>{m.label}：{fmt(m, m.value)}（目标 {target(m)}）</div>)}
                     </div>
-                    <p className="text-xs text-slate-500 mt-2">
-                      {ms.map((m) => `${m.label} ${fmt(m, m.value)} / 目标 ${fmt(m, m.target)}`).join(" · ")}
-                    </p>
-                  </div>
+                  </details>
                 );
               })}
             </div>
           </Section>
         )}
 
-        {snap.sources && (
-          <div className="flex flex-wrap gap-2 text-xs">
-            {Object.entries(snap.sources).map(([k, s]) => (
-              <span key={k} title={s.error ?? ""}
-                className={`px-2 py-1 rounded-full border ${s.ok ? "border-slate-200 text-slate-500" : "border-amber-300 text-amber-700 bg-amber-50"}`}>
-                {SOURCE_NAMES[k] ?? k}：{s.ok ? `更新于 ${when(s.at)}` : `更新失败，数据停在 ${when(s.at)}`}
-              </span>
-            ))}
-          </div>
-        )}
-
-        <Section title="各岗位" note="每个指标：现在的值、目标、30 天趋势。定义在 org/metrics.json。">
-          <div className="grid lg:grid-cols-2 gap-4">
-            {ROLES.map(([role, name]) => {
+        <Section title="各岗位" icon={Bot} note="每个指标：现在的值、目标、30 天趋势。定义在 driftae-ops 的 org/metrics.json。没有独立 agent 的岗位由营销 agent 代管。">
+          <div className="space-y-4">
+            {ROLES.map(([role, name, I]) => {
               const ms = metrics.filter((m) => m.role === role);
               if (!ms.length) return null;
-              const st = teamStatus(role);
               return (
-                <Card key={role} title={name}
-                  note={role === "owner" ? "你的审批速度" : st === "planned" ? "这个岗位还没有独立的 agent，目前由营销 agent 代管" : "agent 在岗"}>
-                  <div className="divide-y divide-slate-100">
-                    {ms.map((m) => (
-                      <div key={m.id} className="grid grid-cols-[1fr_auto_5.5rem] items-center gap-3 py-2" title={m.description}>
-                        <div className="min-w-0">
-                          <div className="text-sm text-slate-800">{m.label}{m.stale && <span className="text-amber-600 text-xs ml-1">（过期）</span>}</div>
-                          <div className="text-xs text-slate-400">
-                            {m.direction === "info" ? "参考值" : `目标 ${m.direction === "lower" ? "≤" : "≥"} ${fmt(m, m.target)}`}
-                          </div>
-                        </div>
-                        <div className={`text-lg font-semibold tabular-nums text-right ${TONE_OF[m.status]}`}>{fmt(m, m.value)}</div>
-                        <Spark points={series(m.id)} />
-                      </div>
-                    ))}
+                <div key={role} className={`${C.card} p-4`}>
+                  <div className="flex items-center gap-2 mb-3">
+                    <span className="flex items-center justify-center w-9 h-9 rounded-full bg-[#f7ede3]"><I className={`w-5 h-5 ${C.accent}`} /></span>
+                    <span className="text-lg font-bold">{name}</span>
+                    {teamStatus(role) === "planned" && <span className={`text-sm ${C.soft}`}>· 代管</span>}
                   </div>
-                </Card>
+                  <div className="grid grid-cols-2 lg:grid-cols-3 gap-2">
+                    {ms.map((m) => <MetricTile key={m.id} m={m} points={series(m.id)} />)}
+                  </div>
+                </div>
               );
             })}
           </div>
         </Section>
 
-        <Section title="私信（Messenger）" note="从客户第一条未回复的消息算到主页回复；自动回复不算。红色 = 超过 1 小时。已放弃 = 你在微信回了“放弃 码”，客人再发消息会重新提醒。">
-          <Table head={["对话", "客户提问", "回复", "状态", "分钟", ""]}>
-            {[...snap.inbox]
+        <Section title="私信" icon={MessageCircle} note="从客户第一条未回复的消息算到主页回复；自动回复不算。橙色 = 超过 1 小时。已放弃 = 你在微信回了“放弃 码”，客人再发消息会重新提醒。">
+          <div className="grid grid-cols-2 gap-3">
+            <Stat icon={Clock} n={waiting.length} unit="位" label="在等回复" tone={waiting.length ? "bad" : "good"} />
+            <Stat icon={MessageCircle} n={Math.round(Math.max(0, ...waiting.map((r) => r.minutes)))} unit="分钟" label="最久等了" tone={waiting.some((r) => r.minutes > 60) ? "bad" : "good"} />
+          </div>
+          <BarList
+            max={Math.max(...snap.inbox.map((x) => x.minutes), 1)}
+            rows={[...snap.inbox]
               .sort((a, b) => (a.status === b.status ? b.asked.localeCompare(a.asked) : a.status === "waiting" ? -1 : b.status === "waiting" ? 1 : 0))
-              .map((r) => (
-                <tr key={r.conversation + r.asked}>
-                  <Td>{r.conversation}</Td>
-                  <Td>{when(r.asked)}</Td>
-                  <Td>{when(r.replied)}</Td>
-                  <Td>
-                    {r.status === "dismissed" ? <Pill>已放弃</Pill> : (
-                      <Pill tone={r.status === "waiting" ? "bad" : r.minutes > 60 ? "warn" : "ok"}>{r.status === "waiting" ? "在等" : "已回复"}</Pill>
-                    )}
-                  </Td>
-                  <Td num>{Math.round(r.minutes)}</Td>
-                  <Td><Bar value={r.minutes} max={Math.max(...snap.inbox.map((x) => x.minutes), 1)} bad={r.minutes > 60} /></Td>
-                </tr>
-              ))}
-          </Table>
+              .map((r) => ({
+                key: r.conversation + r.asked,
+                icon: r.status === "waiting" ? "⏳" : r.status === "dismissed" ? "✕" : "✓",
+                label: when(r.asked),
+                value: r.minutes,
+                text: `${Math.round(r.minutes)} 分`,
+                hot: r.status === "waiting" || r.minutes > 60,
+                dim: r.status === "dismissed",
+              }))}
+          />
         </Section>
 
-        <Section title="从看到广告到下单" note="广告投放以来。订单是所有渠道的，未区分是否来自广告。">
-          <Card title="转化漏斗">
-            <Funnel steps={funnel(snap)} />
-          </Card>
+        <Section title="从看到广告到下单" icon={Megaphone} note="广告投放以来。订单是所有渠道的，未区分是否来自广告。">
+          <div className={`${C.card} p-4`}><Funnel steps={funnel(snap)} /></div>
         </Section>
 
-        <Section title="每条广告（投放以来）" note="标签说明这条广告在测什么。展示不到 1,000 次的先不下结论。">
-          <Table head={["广告", "状态", "题材", "图片", "日预算", "花费", "展示", "点击率", "对话", "每对话"]}>
+        <Section title="每条广告" icon={Megaphone} note="投放以来。大数字 = 每个私信对话花多少钱，越低越好。展示不到 1,000 次的先不下结论。">
+          <div className="grid sm:grid-cols-2 gap-3">
             {snap.ads.filter((a) => a.window === "lifetime").map((a) => (
-              <tr key={a.ad}>
-                <Td>{a.ad}</Td>
-                <Td><Pill tone={a.status === "ACTIVE" ? "ok" : undefined}>{a.status === "ACTIVE" ? "在投" : a.status}</Pill></Td>
-                <Td>{a.tag_theme ?? "—"}</Td>
-                <Td>{a.tag_creative ?? "—"}</Td>
-                <Td num>{money(a.daily_budget)}</Td>
-                <Td num>{money(a.spend)}</Td>
-                <Td num>{a.impressions.toLocaleString()}</Td>
-                <Td num>{a.ctr_pct === null ? "—" : `${a.ctr_pct}%`}</Td>
-                <Td num>{a.conversations}</Td>
-                <Td num>{a.cost_per_conversation === null ? "—" : money(a.cost_per_conversation)}</Td>
-              </tr>
+              <div key={a.ad} className={`${C.card} p-4 space-y-2`}>
+                <div className="flex items-center gap-2">
+                  <span className={`w-2.5 h-2.5 shrink-0 rounded-full ${a.status === "ACTIVE" ? "bg-[#16a34a]" : "bg-[#c9c4ba]"}`} />
+                  <span className="flex-1 min-w-0 truncate font-semibold">{a.ad}</span>
+                </div>
+                <div className="flex items-baseline gap-1.5">
+                  <span className="text-[28px] font-extrabold tabular-nums">{a.cost_per_conversation === null ? "—" : money(a.cost_per_conversation)}</span>
+                  <span className={C.soft}>/ 对话</span>
+                </div>
+                <div className={`flex flex-wrap gap-x-3 gap-y-1 text-sm ${C.soft}`}>
+                  <span>💬 {a.conversations}</span>
+                  <span>👁 {a.impressions.toLocaleString()}</span>
+                  <span>💸 {money(a.spend)}</span>
+                  <span>日 {money(a.daily_budget)}</span>
+                </div>
+                {(a.tag_theme || a.tag_creative) && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {[a.tag_theme, a.tag_creative].filter(Boolean).map((t) => <Chip key={t}>{t}</Chip>)}
+                  </div>
+                )}
+              </div>
             ))}
-          </Table>
+          </div>
         </Section>
 
         {snap.ad_race?.ads?.length ? (
-          <Section title={`广告赛马（每条只看头 ${snap.ad_race.days} 天）`}
-            note={`不同周投的广告按同样天数比。要跑满 ${snap.ad_race.days} 天、展示过 1,000 次才算数；每个对话越便宜越好。绿色 = 目前领先。微信里问 bot 要「赛马卡」。`}>
-            <Table head={["广告", "进度", "开始", "花费", "展示", "点击率", "对话", "每对话"]}>
-              {snap.ad_race.ads.map((r) => (
-                <tr key={r.ad} className={r.ad === snap.ad_race?.leader ? "text-emerald-700 font-medium" : ""}>
-                  <Td>{raceLabel(r)}</Td>
-                  <Td>{raceState(r, snap.ad_race!.days)}</Td>
-                  <Td>{r.started.slice(5)}</Td>
-                  <Td num>{money(r.spend)}</Td>
-                  <Td num>{r.impressions.toLocaleString()}</Td>
-                  <Td num>{r.ctr_pct === null ? "—" : `${r.ctr_pct}%`}</Td>
-                  <Td num>{r.conversations}</Td>
-                  <Td num>{r.cost_per_conversation === null ? "—" : money(r.cost_per_conversation)}</Td>
-                </tr>
-              ))}
-            </Table>
+          <Section title={`广告赛马 · 头 ${snap.ad_race.days} 天`} icon={Trophy}
+            note={`不同周投的广告按同样天数比。要跑满 ${snap.ad_race.days} 天、展示过 1,000 次才算数；每个对话越便宜越好。🏆 = 目前领先。微信里问 bot 要「赛马卡」。`}>
+            <BarList
+              max={Math.max(...snap.ad_race.ads.map((r) => r.cost_per_conversation ?? 0), 1)}
+              rows={snap.ad_race.ads.map((r) => ({
+                key: r.ad,
+                icon: r.ad === snap.ad_race?.leader ? "🏆" : r.done && r.enough_data ? "🏁" : "⏳",
+                label: raceLabel(r),
+                sub: raceState(r, snap.ad_race!.days),
+                value: r.cost_per_conversation ?? 0,
+                text: r.cost_per_conversation === null ? "—" : `${money(r.cost_per_conversation)}/对话`,
+                good: r.ad === snap.ad_race?.leader,
+              }))}
+            />
           </Section>
         ) : null}
 
-        <Section title="Trade Me" note={`按关注数排序。有关注没成交 = 犹豫，考虑报价；浏览少 = 标题或图片要改。同步于 ${when(tm[0]?.synced)}`}>
+        <Section title="Trade Me" icon={Tag} note={`按关注数排序。有关注没成交 = 犹豫，考虑报价；浏览少 = 标题或图片要改。同步于 ${when(tm[0]?.synced)}`}>
           {snap.trademe_ended_early && snap.trademe_ended_early.length > 0 && (
-            <Card title="提前下架（多为成交）" note="到期前离开 Trade Me：一口价被买走、接受了出价，或手动撤下。">
-              <ul className="text-sm space-y-1">
+            <div className={`${C.card} p-4`}>
+              <div className="flex items-center gap-2 mb-2 font-bold"><CheckCircle2 className={`w-5 h-5 ${C.good}`} />提前下架（多为成交）</div>
+              <ul className="space-y-1.5">
                 {[...snap.trademe_ended_early].reverse().slice(0, 10).map((e) => (
-                  <li key={e.listing_id + e.seen_gone}>{when(e.seen_gone)} · ${e.price} · {e.title}</li>
+                  <li key={e.listing_id + e.seen_gone} className="flex items-center gap-3">
+                    <span className="flex-1 min-w-0 truncate">{e.title}</span>
+                    <span className="font-bold tabular-nums">${e.price}</span>
+                    <span className={`text-sm tabular-nums ${C.soft}`}>{when(e.seen_gone).slice(0, 5)}</span>
+                  </li>
                 ))}
               </ul>
-            </Card>
+            </div>
           )}
-          <Table head={["商品", "价格", "浏览", "关注", "", "到期"]}>
-            {tm.map((r) => (
-              <tr key={r.listing_id}>
-                <Td><a className="text-blue-700 hover:underline" href={`https://www.trademe.co.nz/a/listing/${r.listing_id}`} target="_blank" rel="noopener noreferrer">{r.title}</a></Td>
-                <Td num>${r.price}</Td>
-                <Td num>{r.views}</Td>
-                <Td num><span className={r.watchers >= 3 ? "text-amber-600 font-medium" : ""}>{r.watchers}</span></Td>
-                <Td><Bar value={r.views} max={Math.max(...tm.map((x) => x.views), 1)} bad={r.views < 10} /></Td>
-                <Td>{when(r.end)}</Td>
-              </tr>
-            ))}
-          </Table>
+          <div className={`${C.card} divide-y divide-[#e3dfd6]`}>
+            {tm.map((r) => {
+              const max = Math.max(...tm.map((x) => x.views), 1);
+              return (
+                <a key={r.listing_id} href={`https://www.trademe.co.nz/a/listing/${r.listing_id}`} target="_blank" rel="noopener noreferrer"
+                  className="flex items-center gap-3 px-4 py-3 active:bg-[#ece8e0]">
+                  <span className="flex-1 min-w-0">
+                    <span className="block truncate font-medium">{r.title}</span>
+                    <span className="mt-1.5 block h-2 rounded-full bg-[#ece8e0]">
+                      <span className={`block h-2 rounded-full ${r.views < 10 ? "bg-[#c2410c]" : "bg-[#16161a]"}`} style={{ width: `${Math.max(3, (100 * r.views) / max)}%` }} />
+                    </span>
+                  </span>
+                  <span className={`flex items-center gap-1 tabular-nums text-sm ${C.soft}`}><Eye className="w-4 h-4" />{r.views}</span>
+                  <span className={`flex w-12 items-center gap-1 tabular-nums font-bold ${r.watchers >= 3 ? C.bad : ""}`}><Heart className="w-4 h-4" />{r.watchers}</span>
+                  <span className="w-14 text-right font-bold tabular-nums">${r.price}</span>
+                </a>
+              );
+            })}
+          </div>
         </Section>
 
         {snap.trademe_daily && snap.trademe_daily.rows.length > 0 && <TradeMeDaily daily={snap.trademe_daily} />}
 
-        <Section title="团队活动与审批">
-          <div className="grid lg:grid-cols-2 gap-4">
-            <Card title="岗位" note="近 30 天。干活 = 起草、建广告、写知识库；巡检 = 查收件箱、查账户。">
-              <Table head={["岗位", "状态", "干活", "巡检", "最近一次"]}>
-                {snap.team.map((r) => (
-                  <tr key={r.role}>
-                    <Td>{ROLES.find(([k]) => k === r.role)?.[1] ?? r.role}</Td>
-                    <Td><Pill tone={r.status === "active" ? "ok" : undefined}>{r.status === "active" ? "在岗" : "计划中"}</Pill></Td>
-                    <Td num>{r.actions}</Td>
-                    <Td num>{r.checks}</Td>
-                    <Td>{when(r.last_action)}</Td>
-                  </tr>
-                ))}
-              </Table>
-            </Card>
-            <Card title="审批" note="agent 发微信审批码 → 批准之间的时间。">
-              <Table head={["请求时间", "内容", "用时（分钟）"]}>
-                {[...snap.approvals].reverse().map((r) => (
-                  <tr key={r.requested + r.kind}>
-                    <Td>{when(r.requested)}</Td>
-                    <Td>{r.kind === "Messenger reply" ? "Messenger 回复" : r.kind}</Td>
-                    <Td num>{r.minutes ?? "未批"}</Td>
-                  </tr>
-                ))}
-              </Table>
-            </Card>
-          </div>
+        <Section title="订单" icon={Receipt} note="每月合计，不含已取消。深色 = 销售额，橙色 = 毛利。">
+          <Months rows={snap.orders_monthly} />
+          <a href="/books" className={`inline-flex items-center h-11 px-4 rounded-full bg-white font-semibold ${C.accent}`}>每单怎么算 · 账本 ›</a>
         </Section>
 
-        <Section title="订单" note="每月合计，不含已取消。">
-          <Table head={["月份", "订单", "销售额", "毛利"]}>
-            {[...snap.orders_monthly].reverse().map((r) => (
-              <tr key={r.month}>
-                <Td>{r.month}</Td>
-                <Td num>{r.orders}</Td>
-                <Td num>{money(r.revenue)}</Td>
-                <Td num>{money(r.gross_profit)}</Td>
-              </tr>
-            ))}
-          </Table>
-          <a href="/books" className="inline-block text-sm text-blue-700 hover:underline">每单怎么算的（人民币进价、汇率、运费、手续费）→ 账本</a>
+        <Section title="团队与审批" icon={UserCheck} note="近 30 天。干活 = 起草、建广告、写知识库；巡检 = 查收件箱、查账户。审批用时 = agent 发审批码到批准。">
+          <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
+            {snap.team.map((r) => {
+              const I = roleIcon(r.role);
+              return (
+                <div key={r.role} className={`${C.card} p-4 space-y-1`}>
+                  <div className="flex items-center gap-2 font-bold">
+                    <I className={`w-5 h-5 ${C.accent}`} />{ROLES.find(([k]) => k === r.role)?.[1] ?? r.role}
+                    <span className={`ml-auto w-2.5 h-2.5 rounded-full ${r.status === "active" ? "bg-[#16a34a]" : "bg-[#c9c4ba]"}`} />
+                  </div>
+                  <div className="text-[26px] font-extrabold tabular-nums">{r.actions}<span className={`text-sm font-medium ${C.soft}`}> 干活 · {r.checks} 巡检</span></div>
+                  <div className={`text-sm ${C.soft}`}>最近 {when(r.last_action)}</div>
+                </div>
+              );
+            })}
+          </div>
+          {snap.approvals.length > 0 && (
+            <BarList
+              max={Math.max(...snap.approvals.map((r) => r.minutes ?? 0), 1)}
+              rows={[...snap.approvals].reverse().map((r) => ({
+                key: r.requested + r.kind,
+                icon: r.minutes === null ? "⏳" : "✓",
+                label: r.kind === "Messenger reply" ? "Messenger 回复" : r.kind,
+                sub: when(r.requested),
+                value: r.minutes ?? 0,
+                text: r.minutes === null ? "未批" : `${r.minutes} 分`,
+                hot: r.minutes === null,
+              }))}
+            />
+          )}
         </Section>
       </div>
     </div>
@@ -327,20 +358,109 @@ function funnel(snap: Snapshot): [string, number][] {
   const sum = (k: "impressions" | "link_clicks" | "conversations") => snap.ads_daily.reduce((t, r) => t + (r[k] || 0), 0);
   const first = snap.ads_daily.map((r) => r.day).sort()[0] ?? "9999";
   const orders = snap.orders_daily.filter((r) => r.day >= first).reduce((t, r) => t + r.orders, 0);
-  return [["展示", sum("impressions")], ["链接点击", sum("link_clicks")], ["私信对话", sum("conversations")], ["订单", orders]];
+  return [["👁 展示", sum("impressions")], ["👆 点击", sum("link_clicks")], ["💬 私信", sum("conversations")], ["🛒 订单", orders]];
 }
 
-const TONE_OF: Record<Status, string> = { ok: "text-emerald-600", bad: "text-red-600", info: "text-slate-900", unknown: "text-slate-400" };
+/** Off target: the role's icon, the number big, what it should be under it. */
+function BigTile({ m }: { m: Metric }) {
+  const I = roleIcon(m.role);
+  return (
+    <div className={`${C.card} p-4 border-2 border-[#c2410c] flex flex-col gap-1`} title={m.description}>
+      <I className={`w-7 h-7 ${C.bad}`} />
+      <span className={`text-[32px] leading-tight font-extrabold tabular-nums ${C.bad}`}>{fmt(m, m.value)}</span>
+      <span className="font-semibold leading-snug">{m.label}</span>
+      <span className={`text-sm ${C.soft}`}>目标 {target(m)}</span>
+    </div>
+  );
+}
+
+function MetricTile({ m, points }: { m: Metric; points: Point[] }) {
+  const tone = m.status === "bad" ? C.bad : m.status === "ok" ? C.good : m.status === "unknown" ? "text-[#a8a397]" : "";
+  return (
+    <div className="rounded-2xl bg-[#f5f3ee] p-3 flex flex-col gap-0.5 min-w-0" title={m.description}>
+      <span className="flex items-center gap-1">
+        {m.status === "bad" ? <XCircle className={`w-4 h-4 ${C.bad}`} /> : m.status === "ok" ? <CheckCircle2 className={`w-4 h-4 ${C.good}`} /> : null}
+        <span className={`text-[22px] font-extrabold tabular-nums ${tone}`}>{fmt(m, m.value)}</span>
+      </span>
+      <span className="text-sm font-medium leading-snug">{m.label}{m.stale && <span className={C.bad}> · 过期</span>}</span>
+      <span className="flex items-center justify-between gap-2">
+        <span className={`text-xs ${C.soft}`}>目标 {target(m)}</span>
+        <Spark points={points} />
+      </span>
+    </div>
+  );
+}
+
+function Stat({ icon: I, n, unit, label, tone }: { icon: LucideIcon; n: number; unit: string; label: string; tone: "good" | "bad" }) {
+  return (
+    <div className={`${C.card} p-4 flex flex-col gap-1`}>
+      <I className={`w-6 h-6 ${tone === "bad" ? C.bad : C.good}`} />
+      <span className={`text-[32px] leading-tight font-extrabold tabular-nums ${tone === "bad" ? C.bad : ""}`}>{n}<span className={`text-base font-medium ${C.soft}`}> {unit}</span></span>
+      <span className="font-semibold">{label}</span>
+    </div>
+  );
+}
+
+type BarRow = { key: string; icon: string; label: string; sub?: string; value: number; text: string; hot?: boolean; good?: boolean; dim?: boolean };
+
+/** One line each: a mark, what, a bar for how much, the number. */
+function BarList({ rows, max }: { rows: BarRow[]; max: number }) {
+  if (!rows.length) return null;
+  return (
+    <div className={`${C.card} divide-y divide-[#e3dfd6]`}>
+      {rows.map((r) => (
+        <div key={r.key} className={`flex items-center gap-3 px-4 py-3 ${r.dim ? "opacity-50" : ""}`}>
+          <span className="w-6 text-center text-lg">{r.icon}</span>
+          <span className="flex-1 min-w-0">
+            <span className="flex items-baseline gap-2">
+              <span className="truncate font-medium">{r.label}</span>
+              {r.sub && <span className={`shrink-0 text-xs ${C.soft}`}>{r.sub}</span>}
+            </span>
+            <span className="mt-1.5 block h-2 rounded-full bg-[#ece8e0]">
+              <span className={`block h-2 rounded-full ${r.hot ? "bg-[#c2410c]" : r.good ? "bg-[#16a34a]" : "bg-[#16161a]"}`}
+                style={{ width: `${Math.max(3, (100 * r.value) / max)}%` }} />
+            </span>
+          </span>
+          <span className={`shrink-0 font-bold tabular-nums ${r.hot ? C.bad : r.good ? C.good : ""}`}>{r.text}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Each month: a dark bar for sales, an orange one for profit, the numbers beside them. */
+function Months({ rows }: { rows: Snapshot["orders_monthly"] }) {
+  const list = [...rows].reverse().slice(0, 12);
+  const max = Math.max(...list.map((r) => r.revenue), 1);
+  return (
+    <div className={`${C.card} p-4 space-y-3`}>
+      {list.map((r) => (
+        <div key={r.month} className="grid grid-cols-[3.2rem_1fr_auto] items-center gap-3">
+          <span className="font-bold tabular-nums">{r.month.slice(2).replace("-", ".")}</span>
+          <span className="space-y-1">
+            <span className="block h-3 rounded-full bg-[#16161a]" style={{ width: `${Math.max(2, (100 * r.revenue) / max)}%` }} />
+            <span className="block h-3 rounded-full bg-[#c2410c]" style={{ width: `${Math.max(1, (100 * Math.max(0, r.gross_profit)) / max)}%` }} />
+          </span>
+          <span className="text-right tabular-nums leading-tight">
+            <span className="block font-bold">{money(r.revenue)}</span>
+            <span className={`block text-sm font-semibold ${C.accent}`}>{money(r.gross_profit)}</span>
+          </span>
+        </div>
+      ))}
+      <div className={`text-sm ${C.soft}`}>🛒 {list.reduce((t, r) => t + r.orders, 0)} 单 · {list.length} 个月</div>
+    </div>
+  );
+}
 
 function Spark({ points }: { points: Point[] }) {
   const vals = points.map((p) => p.value).filter((v): v is number => v !== null);
-  if (vals.length < 2) return <span className="text-xs text-slate-300 text-right">{vals.length ? "1 天" : "无历史"}</span>;
+  if (vals.length < 2) return null;
   const min = Math.min(...vals), max = Math.max(...vals), span = max - min || 1;
-  const xy = vals.map((v, i) => `${(i / (vals.length - 1)) * 84 + 2},${20 - ((v - min) / span) * 16}`).join(" ");
+  const xy = vals.map((v, i) => `${(i / (vals.length - 1)) * 60 + 2},${18 - ((v - min) / span) * 14}`).join(" ");
   const last = points[points.length - 1]?.status;
   return (
-    <svg viewBox="0 0 88 24" className="w-[5.5rem] h-6" aria-hidden="true">
-      <polyline points={xy} fill="none" stroke={last === "bad" ? "#dc2626" : "#64748b"} strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" />
+    <svg viewBox="0 0 64 20" className="w-16 h-5 shrink-0" aria-hidden="true">
+      <polyline points={xy} fill="none" stroke={last === "bad" ? "#c2410c" : "#5e5b55"} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
     </svg>
   );
 }
@@ -351,115 +471,92 @@ function TradeMeDaily({ daily }: { daily: NonNullable<Snapshot["trademe_daily"]>
   const days = daily.days.slice(-n);
   const max = Math.max(1, ...daily.rows.flatMap((r) => r.views.slice(-n).map((v) => v ?? 0)));
   return (
-    <Section title="Trade Me 每天浏览（按商品）" note="每格 = 当天新增浏览。重新上架不清零（↻ = 那天重新上架）；· = 那天不在架。最后一天还没过完。">
-      <Table head={["商品", ...days.map((d) => d.slice(5)), "7 天", "关注"]}>
-        {daily.rows.map((r) => {
-          const views = r.views.slice(-n);
-          const watchers = r.watchers.filter((w) => w !== null);
-          return (
-            <tr key={r.product_ids.join(",") || r.title} className={r.live ? "" : "text-slate-400"}>
-              <Td>
-                <a className={r.live ? "text-blue-700 hover:underline" : "hover:underline"} href={`https://www.trademe.co.nz/a/listing/${r.listing_id}`} target="_blank" rel="noopener noreferrer">{r.title}</a>
-                {!r.live && " （已下架）"}
-              </Td>
-              {views.map((v, i) => (
-                <Td num key={days[i]}>
-                  {v === null ? <span className="text-slate-300">·</span> : (
-                    <span className="inline-flex items-center gap-1">
-                      {r.relisted.includes(days[i]) && <span className="text-slate-400" title="这天重新上架">↻</span>}
-                      <span className="inline-block rounded px-1" style={{ background: v ? `rgba(37, 99, 235, ${0.08 + 0.4 * (v / max)})` : undefined }}>{v}</span>
-                    </span>
-                  )}
-                </Td>
-              ))}
-              <Td num><span className="font-medium">{views.reduce<number>((a, v) => a + (v ?? 0), 0)}</span></Td>
-              <Td num>{watchers.length ? watchers[watchers.length - 1] : "—"}</Td>
+    <Section title="每天浏览" icon={Eye} note="每格 = 那天新增浏览，越橙越多。重新上架不清零（↻ = 那天重新上架）；空格 = 那天不在架。最后一天还没过完。">
+      <div className={`${C.card} p-3 overflow-x-auto`}>
+        <table className="w-full border-separate border-spacing-1 text-sm">
+          <thead>
+            <tr>
+              <th />
+              {days.map((d) => <th key={d} className={`font-semibold tabular-nums ${C.soft}`}>{d.slice(8)}</th>)}
+              <th className={`font-semibold ${C.soft}`}>7天</th>
             </tr>
-          );
-        })}
-      </Table>
+          </thead>
+          <tbody>
+            {daily.rows.map((r) => {
+              const views = r.views.slice(-n);
+              return (
+                <tr key={r.product_ids.join(",") || r.title} className={r.live ? "" : "opacity-40"}>
+                  <td className="max-w-[9rem] truncate pr-1 font-medium">
+                    <a href={`https://www.trademe.co.nz/a/listing/${r.listing_id}`} target="_blank" rel="noopener noreferrer">{r.title}</a>
+                  </td>
+                  {views.map((v, i) => (
+                    <td key={days[i]} className="h-9 w-9 min-w-9 rounded-lg text-center tabular-nums font-semibold"
+                      style={{ background: v === null ? "transparent" : v ? `rgba(194, 65, 12, ${0.1 + 0.75 * (v / max)})` : "#ece8e0", color: v && v / max > 0.5 ? "#fff" : undefined }}>
+                      {v === null ? "" : r.relisted.includes(days[i]) ? `↻${v}` : v}
+                    </td>
+                  ))}
+                  <td className="text-center font-extrabold tabular-nums">{views.reduce<number>((a, v) => a + (v ?? 0), 0)}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
     </Section>
   );
 }
 
 function Centered({ children }: { children: React.ReactNode }) {
-  return <div className="min-h-screen flex items-center justify-center p-4 text-slate-500">{children}</div>;
+  return <div className={`min-h-screen flex items-center justify-center p-4 ${C.page} ${C.soft}`}>{children}</div>;
 }
 
-function Section({ title, note, children }: { title: string; note?: string; children: React.ReactNode }) {
+function Banner({ children }: { children: React.ReactNode }) {
+  return <div className="rounded-2xl bg-[#fde8dc] px-4 py-3 font-semibold text-[#9a3412]">⚠️ {children}</div>;
+}
+
+function Chip({ children }: { children: React.ReactNode }) {
+  return <span className="inline-flex h-7 items-center px-2.5 rounded-full bg-[#f5f3ee] text-sm font-medium">{children}</span>;
+}
+
+/** A heading with its icon; the explanation only when ⓘ is tapped. */
+function Section({ title, icon: I, note, children }: { title: string; icon: LucideIcon; note?: string; children: React.ReactNode }) {
+  const [open, setOpen] = useState(false);
   return (
     <section className="space-y-3">
-      <div>
-        <h2 className="text-lg font-semibold text-slate-900">{title}</h2>
-        {note && <p className="text-xs text-slate-500 mt-0.5">{note}</p>}
+      <div className="flex items-center gap-2">
+        <I className={`w-6 h-6 ${C.accent}`} />
+        <h2 className="text-[22px] font-extrabold">{title}</h2>
+        {note && (
+          <button onClick={() => setOpen(!open)} aria-label="说明" aria-expanded={open}
+            className={`ml-auto flex items-center justify-center w-11 h-11 rounded-full ${open ? "bg-white" : ""} ${C.soft}`}>
+            <Info className="w-5 h-5" />
+          </button>
+        )}
       </div>
+      {open && note && <p className={`rounded-2xl bg-white px-4 py-3 text-sm ${C.soft}`}>{note}</p>}
       {children}
     </section>
   );
 }
 
-function Card({ title, note, children }: { title: string; note?: string; children: React.ReactNode }) {
-  return (
-    <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 min-w-0">
-      <h3 className="font-medium text-slate-800">{title}</h3>
-      {note && <p className="text-xs text-slate-500 mb-3">{note}</p>}
-      {children}
-    </div>
-  );
-}
-
-const TONE = { ok: "text-emerald-600", warn: "text-amber-600", bad: "text-red-600" };
-
-function Pill({ tone, children }: { tone?: keyof typeof TONE; children: React.ReactNode }) {
-  return (
-    <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium border border-current ${tone ? TONE[tone] : "text-slate-500"}`}>
-      {children}
-    </span>
-  );
-}
-
-function Table({ head, children }: { head: string[]; children: React.ReactNode }) {
-  return (
-    <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-x-auto">
-      <table className="w-full text-sm">
-        <thead className="bg-slate-50 border-b border-slate-200">
-          <tr>{head.map((h, i) => <th key={i} className="px-3 py-2 text-left font-medium text-slate-600 whitespace-nowrap">{h}</th>)}</tr>
-        </thead>
-        <tbody className="divide-y divide-slate-100">{children}</tbody>
-      </table>
-    </div>
-  );
-}
-
-function Td({ num, children }: { num?: boolean; children: React.ReactNode }) {
-  return <td className={`px-3 py-2 ${num ? "text-right tabular-nums whitespace-nowrap" : ""}`}>{children}</td>;
-}
-
-function Bar({ value, max, bad }: { value: number; max: number; bad?: boolean }) {
-  return (
-    <div className="h-2 min-w-[4rem] rounded bg-slate-100">
-      <div className={`h-2 rounded ${bad ? "bg-red-400" : "bg-slate-400"}`} style={{ width: `${Math.max(2, (100 * value) / max)}%` }} />
-    </div>
-  );
-}
-
+/** Each step a bar (square-root scaled, so the small steps still show) and how many of the step before got through. */
 function Funnel({ steps }: { steps: [string, number][] }) {
   const max = Math.max(...steps.map(([, n]) => n), 1);
   return (
-    <div className="space-y-2">
+    <div className="space-y-1">
       {steps.map(([name, n], i) => (
         <div key={name}>
           {i > 0 && (
-            <div className="text-xs text-slate-400 pl-20">
+            <div className={`pl-[5.5rem] text-sm font-semibold ${C.accent}`}>
               ↓ {steps[i - 1][1] ? `${((100 * n) / steps[i - 1][1]).toFixed(1)}%` : "—"}
             </div>
           )}
-          <div className="grid grid-cols-[5rem_1fr_4rem] items-center gap-2 text-sm">
-            <span className="text-slate-600">{name}</span>
-            <div className="h-5 rounded bg-slate-100">
-              <div className="h-5 rounded bg-blue-500" style={{ width: `${Math.max(1, Math.sqrt(n / max) * 100)}%` }} />
-            </div>
-            <span className="text-right tabular-nums">{n.toLocaleString()}</span>
+          <div className="grid grid-cols-[5rem_1fr_4.5rem] items-center gap-2">
+            <span className="font-semibold">{name}</span>
+            <span className="h-7 rounded-full bg-[#ece8e0]">
+              <span className="block h-7 rounded-full bg-[#16161a]" style={{ width: `${Math.max(2, Math.sqrt(n / max) * 100)}%` }} />
+            </span>
+            <span className="text-right text-lg font-extrabold tabular-nums">{n.toLocaleString()}</span>
           </div>
         </div>
       ))}
