@@ -50,7 +50,10 @@ const ROLES: [string, string, LucideIcon][] = [
   ["finance", "财务", Wallet], ["owner", "你", UserCheck],
 ];
 const roleIcon = (role: string) => ROLES.find(([k]) => k === role)?.[2] ?? Bot;
-const SOURCE_NAMES: Record<string, string> = { meta: "Meta", trademe: "Trade Me", orders: "订单", ledger: "记录", bots: "bot" };
+const SOURCE_NAMES: Record<string, string> = {
+  meta: "Meta", trademe: "Trade Me", orders: "订单", ledger: "记录", bots: "bot", photos: "照片", catalog: "商品目录",
+  market: "行情", merchant: "Google 商品",
+};
 const money = (n: number) => (Math.abs(n) >= 1000 ? `$${Math.round(n).toLocaleString()}` : `$${n.toFixed(n % 1 ? 2 : 0)}`);
 const when = (iso: string | null | undefined) => (iso ? iso.slice(5, 16).replace("T", " ") : "—");
 const fmt = (m: Metric, v: number | null) =>
@@ -148,13 +151,17 @@ function OpsContent() {
 
         {snap.sources && (
           <div className="flex flex-wrap gap-2" aria-label="数据来源">
-            {Object.entries(snap.sources).map(([k, s]) => (
-              <span key={k} title={s.ok ? `更新于 ${when(s.at)}` : `更新失败，数据停在 ${when(s.at)}${s.error ? `：${s.error}` : ""}`}
-                className={`flex items-center gap-1.5 h-9 px-3 rounded-full font-semibold ${s.ok ? "bg-white" : "bg-[#fde8dc] text-[#9a3412]"}`}>
-                <span className={`w-2.5 h-2.5 rounded-full ${s.ok ? "bg-[#16a34a]" : "bg-[#c2410c]"}`} />
-                {SOURCE_NAMES[k] ?? k}{!s.ok && " 断了"}
+            {/* only what broke, by name; the rest in one chip (tap it for the list) */}
+            {Object.entries(snap.sources).filter(([, s]) => !s.ok).map(([k, s]) => (
+              <span key={k} title={`更新失败，数据停在 ${when(s.at)}${s.error ? `：${s.error}` : ""}`}
+                className="flex items-center gap-1.5 h-9 px-3 rounded-full font-semibold bg-[#fde8dc] text-[#9a3412]">
+                <span className="w-2.5 h-2.5 rounded-full bg-[#c2410c]" />{SOURCE_NAMES[k] ?? k} 断了
               </span>
             ))}
+            <span title={Object.entries(snap.sources).filter(([, s]) => s.ok).map(([k]) => SOURCE_NAMES[k] ?? k).join("、")}
+              className="flex items-center gap-1.5 h-9 px-3 rounded-full font-semibold bg-white">
+              <span className="w-2.5 h-2.5 rounded-full bg-[#16a34a]" />{Object.values(snap.sources).filter((s) => s.ok).length} 个正常
+            </span>
             {!hasDb && <span className={`flex items-center h-9 px-3 ${C.soft}`}>趋势要连数据库</span>}
           </div>
         )}

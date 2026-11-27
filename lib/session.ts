@@ -51,7 +51,8 @@ export function createSessionToken(role: Role, exp = Math.floor(Date.now() / 100
 
 // Links with a view pass (owner 2026-10-27: "这个链接有没有可能做成直接进的"): the bots' card links carry
 // `exp:viewer.<mac>`, signed by the driftae-ops server with a key derived from METRICS_PUSH_TOKEN (it already holds it),
-// at most LINK_MAX_DAYS ahead. Opening one sets a separate viewer cookie: never admin, never replaces a password login.
+// at most LINK_MAX_DAYS ahead. Opening one sets a separate cookie with the pass's role: viewer for the WeChat cards, admin
+// for brain's 看全部 (only the team sees brain; owner 2026-11-27: 点订单怎么还要输入密码 → 链接直接全开).
 export const LINK_COOKIE = "view_link";
 export const LINK_MAX_DAYS = 8;
 
@@ -60,8 +61,8 @@ function linkKey(): Buffer | null {
   return token ? sha256(`view-link:${token}`) : null;
 }
 
-/** The pass's expiry (unix seconds) when it is genuine, unexpired and for a viewer; otherwise null. */
-export function viewLinkExpiry(t: string | null): number | null {
+/** The pass's expiry (unix seconds) and role when it is genuine and unexpired; otherwise null. */
+export function viewLinkPass(t: string | null): { exp: number; role: Role } | null {
   const key = linkKey();
   if (!key || !t) return null;
   const [payload, mac] = t.split(".");
@@ -71,8 +72,8 @@ export function viewLinkExpiry(t: string | null): number | null {
   if (expected.length !== given.length || !timingSafeEqual(expected, given)) return null;
   const [exp, role] = payload.split(":");
   const now = Date.now() / 1000;
-  if (role !== "viewer" || !(Number(exp) > now) || Number(exp) > now + LINK_MAX_DAYS * 86400) return null;
-  return Number(exp);
+  if ((role !== "viewer" && role !== "admin") || !(Number(exp) > now) || Number(exp) > now + LINK_MAX_DAYS * 86400) return null;
+  return { exp: Number(exp), role };
 }
 
 // Forever link (owner 2026-11-17: 「链接存到微信里永不过期，不用再输密码」): /go?k=<mac>, made on the home page by someone
@@ -107,7 +108,7 @@ export function sessionRole(request: NextRequest): Role | null {
   const key = signingKey();
   if (!key) return null;
   return cookieRole(key, request.cookies.get(SESSION_COOKIE)?.value)
-    ?? (cookieRole(key, request.cookies.get(LINK_COOKIE)?.value) === "viewer" ? "viewer" : null);
+    ?? cookieRole(key, request.cookies.get(LINK_COOKIE)?.value);
 }
 
 /** Orders (customer names, costs) are admin-only. */
