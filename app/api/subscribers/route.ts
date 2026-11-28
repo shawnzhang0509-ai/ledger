@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { activeSubscribers, addSubscriber, markSubscribeMailed, subscribeOutbox, subscriberCounts, unsubscribeEmail } from "@/lib/db";
+import { quietOutbox } from "@/lib/neon-quiet";
 import { pushTokenMatches } from "@/lib/session";
 import { cleanEmail, newToken } from "@/lib/subscribe";
 
@@ -11,7 +12,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   if (request.nextUrl.searchParams.get("count")) return NextResponse.json(await subscriberCounts());
-  if (request.nextUrl.searchParams.get("outbox")) return NextResponse.json({ mails: await subscribeOutbox() });
+  if (request.nextUrl.searchParams.get("outbox")) return NextResponse.json({ mails: await quietOutbox("subscribe", subscribeOutbox) });
   return NextResponse.json({ subscribers: await activeSubscribers() });
 }
 

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requestSubscribe } from "@/lib/db";
+import { mailQueued } from "@/lib/neon-quiet";
 import { cleanEmail, newToken } from "@/lib/subscribe";
 
 // Public sign-up form on www.driftae.com. The visitor ticks the consent box; that wording is stored with them once they
@@ -30,6 +31,7 @@ export async function POST(request: NextRequest) {
   }
   try {
     await requestSubscribe({ email, source: "website", consent_text: CONSENT, token: newToken() });
+    await mailQueued("subscribe");
   } catch {
     return NextResponse.json({ error: "Please try again later" }, { status: 503, headers });
   }
