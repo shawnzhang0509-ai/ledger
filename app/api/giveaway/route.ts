@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { unstable_noStore as noStore } from "next/cache";
 import { addEntries, drawStats, drawWinner, inviteStats, redraw, loadDraw, mailOutbox, markMailed, requestJoin, setDraw, VIA, Via, voidEntry, winnerContact } from "@/lib/giveaway-db";
+import { mailQueued, quietOutbox } from "@/lib/neon-quiet";
 import { pushTokenMatches, sessionRole } from "@/lib/session";
 import { cleanEmail } from "@/lib/subscribe";
 
@@ -51,6 +52,7 @@ async function join(request: NextRequest, b: Record<string, unknown>) {
       return NextResponse.json({ error: "Entries are closed. The next draw opens soon." }, { status: 409, headers });
     }
     const r = await requestJoin(found.draw.month, { email, name, post, ref });
+    if (!r.confirmed) await mailQueued("giveaway");
     return NextResponse.json({ ok: true, month: found.draw.month, ...r }, { headers });
   } catch {
     return NextResponse.json({ error: "Please try again later" }, { status: 503, headers });
@@ -94,7 +96,7 @@ export async function POST(request: NextRequest) {
   const role = server ? null : sessionRole(request);
   if (!server && !role) return bad("Unauthorized", 401);
   const by = server ? `bot:${(s(b.by, 40) ?? "server").replace(/[^\w一-鿿-]/g, "")}` : `page:${role}`;
-  if (b.action === "outbox") return NextResponse.json({ mails: await mailOutbox() });
+  if (b.action === "outbox") return NextResponse.json({ mails: await quietOutbox("giveaway", mailOutbox) });
   if (b.action === "mailed") {
     await markMailed(Array.isArray(b.tokens) ? b.tokens.filter((t: unknown) => typeof t === "string").slice(0, 100) : []);
     return NextResponse.json({ success: true });

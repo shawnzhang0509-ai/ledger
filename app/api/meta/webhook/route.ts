@@ -1,6 +1,7 @@
 import { createHmac, timingSafeEqual } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { MessengerReferral, saveReferrals } from "@/lib/db";
+import { referralsChanged } from "@/lib/neon-quiet";
 
 // Meta's Messenger webhook for the Driftae Page. We keep only where a conversation came from
 // (the ad, or the ?ref= on an m.me link such as a storefront product page) and the customer's
@@ -74,6 +75,6 @@ export async function POST(request: NextRequest) {
   }
   // Meta wants a 200 within 5 s and disables the webhook after an hour of failures; a database
   // hiccup must not turn into that, so it is logged and still acknowledged.
-  await saveReferrals(rows).catch((e) => console.error("messenger referral save failed", e));
+  await saveReferrals(rows).then(referralsChanged).catch((e) => console.error("messenger referral save failed", e));
   return NextResponse.json({ ok: true });
 }
